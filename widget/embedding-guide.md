@@ -1,460 +1,289 @@
-# Widget Embedding Guide — Plataformas Específicas
+# Embedding Guide — Widget del Chat Agentic  
+SaaS Agentic Booking Chat
 
-Esta guía muestra cómo integrar el widget en diferentes plataformas y CMS.
+Esta guía explica cómo integrar el widget en cualquier tipo de sitio web:
+
+- HTML tradicional  
+- React  
+- Next.js  
+- Angular  
+- Vue  
+- Shopify  
+- WordPress  
+- Webflow  
+- Wix  
+- Aplicaciones internas (intranets, portales corporativos)
+
+Además cubre:
+
+- requisitos de CSP,
+- self-hosting opcional,
+- manejo de versiones,
+- troubleshooting avanzado.
 
 ---
 
-## 🌐 HTML Estático
+# 🚀 1. Inserción básica (HTML)
 
-### Integración básica
+La forma más simple de integrar el widget es añadir este `<script>`:
 
 ```html
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Mi Sitio</title>
-</head>
-<body>
-  <h1>Bienvenido</h1>
-  <p>Contenido de tu sitio...</p>
-  
-  <!-- Widget del chat agéntico -->
-  <script
-    src="https://cdn.tu-saas.com/chat-widget/latest/chat-widget.js"
-    data-tenant-id="YOUR_TENANT_ID"
-    data-public-key="YOUR_PUBLIC_KEY"
-    data-primary-color="#e91e63"
-  ></script>
-</body>
-</html>
+<script src="https://cdn.tu-saas.com/chat-widget/latest/chat-widget.js"
+        data-tenant-id="TENANT_123"
+        data-public-key="pk_live_xxx"
+        data-language="es"
+        data-position="right"
+        data-auto-open="false"></script>
+```
+
+Al cargar, aparecerá un botón flotante en la esquina inferior.
+
+## 1.1 Requisitos
+
+- Insertarlo justo antes de `</body>`
+- El dominio debe estar en `allowedOrigins` del panel admin
+- El tenant debe tener una API key activa
+
+---
+
+# 🧩 2. Integración en React
+
+Insertar el script dinámicamente dentro de un `useEffect`:
+
+```javascript
+useEffect(() => {
+  const s = document.createElement("script");
+  s.src = "https://cdn.tu-saas.com/chat-widget/latest/chat-widget.js";
+  s.dataset.tenantId = "TENANT_123";
+  s.dataset.publicKey = "pk_live_xxx";
+  document.body.appendChild(s);
+}, []);
+```
+
+## 2.1 Abrir el widget desde React
+
+```jsx
+<button onClick={() => window.ChatAgentWidget.open()}>
+  Reservar ahora
+</button>
 ```
 
 ---
 
-## ⚛️ React
+# 📦 3. Integración en Next.js
 
-### Opción 1: Script directo en `index.html`
-
-```html
-<!-- public/index.html -->
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <!-- ... -->
-</head>
-<body>
-  <div id="root"></div>
-  
-  <script
-    src="https://cdn.tu-saas.com/chat-widget/latest/chat-widget.js"
-    data-tenant-id="%REACT_APP_TENANT_ID%"
-    data-public-key="%REACT_APP_PUBLIC_KEY%"
-  ></script>
-</body>
-</html>
-```
-
-Configurar en `.env`:
-```
-REACT_APP_TENANT_ID=andina
-REACT_APP_PUBLIC_KEY=pk_live_abc123
-```
-
-### Opción 2: Componente React con `useEffect`
+Agregar el script en `_app.tsx` o mediante el componente `next/script`:
 
 ```jsx
-// src/components/ChatWidget.jsx
-import { useEffect } from 'react';
-
-export default function ChatWidget() {
-  useEffect(() => {
-    // Cargar script
-    const script = document.createElement('script');
-    script.src = 'https://cdn.tu-saas.com/chat-widget/latest/chat-widget.js';
-    script.async = true;
-    script.setAttribute('data-tenant-id', process.env.REACT_APP_TENANT_ID);
-    script.setAttribute('data-public-key', process.env.REACT_APP_PUBLIC_KEY);
-    script.setAttribute('data-primary-color', '#1976d2');
-    
-    document.body.appendChild(script);
-    
-    return () => {
-      // Limpiar al desmontar
-      document.body.removeChild(script);
-      if (window.ChatAgentWidget) {
-        window.ChatAgentWidget.destroy();
-      }
-    };
-  }, []);
-  
-  return null; // No renderiza nada
-}
-```
-
-Usar en `App.jsx`:
-```jsx
-import ChatWidget from './components/ChatWidget';
-
-function App() {
-  return (
-    <>
-      <ChatWidget />
-      {/* Tu app */}
-    </>
-  );
-}
-```
-
-### Opción 3: Inicialización programática
-
-```jsx
-// src/hooks/useChatWidget.js
-import { useEffect } from 'react';
-
-export function useChatWidget(config) {
-  useEffect(() => {
-    const script = document.createElement('script');
-    script.src = 'https://cdn.tu-saas.com/chat-widget/latest/chat-widget.js';
-    script.async = true;
-    
-    script.onload = () => {
-      window.ChatAgentWidget.init({
-        tenantId: config.tenantId,
-        publicKey: config.publicKey,
-        primaryColor: config.primaryColor,
-        userContext: config.userContext,
-        onBookingCreated: (booking) => {
-          console.log('Reserva creada:', booking);
-          // Tracking, analytics, etc.
-        }
-      });
-    };
-    
-    document.body.appendChild(script);
-    
-    return () => {
-      if (window.ChatAgentWidget) {
-        window.ChatAgentWidget.destroy();
-      }
-      document.body.removeChild(script);
-    };
-  }, [config]);
-}
-
-// Usar en componente
-function App() {
-  const user = useAuth(); // tu hook de auth
-  
-  useChatWidget({
-    tenantId: process.env.REACT_APP_TENANT_ID,
-    publicKey: process.env.REACT_APP_PUBLIC_KEY,
-    primaryColor: '#1976d2',
-    userContext: {
-      userId: user?.id,
-      name: user?.name,
-      email: user?.email
-    }
-  });
-  
-  return <div>...</div>;
-}
-```
-
----
-
-## 🔷 Next.js
-
-### App Router (Next.js 13+)
-
-```jsx
-// app/layout.jsx
-import Script from 'next/script';
-
-export default function RootLayout({ children }) {
-  return (
-    <html lang="es">
-      <body>
-        {children}
-        
-        <Script
-          src="https://cdn.tu-saas.com/chat-widget/latest/chat-widget.js"
-          strategy="lazyOnload"
-          data-tenant-id={process.env.NEXT_PUBLIC_TENANT_ID}
-          data-public-key={process.env.NEXT_PUBLIC_PUBLIC_KEY}
-        />
-      </body>
-    </html>
-  );
-}
-```
-
-### Pages Router (Next.js 12 y anteriores)
-
-```jsx
-// pages/_app.jsx
-import Script from 'next/script';
-
-function MyApp({ Component, pageProps }) {
-  return (
-    <>
-      <Component {...pageProps} />
-      
-      <Script
-        src="https://cdn.tu-saas.com/chat-widget/latest/chat-widget.js"
-        strategy="lazyOnload"
-        data-tenant-id={process.env.NEXT_PUBLIC_TENANT_ID}
-        data-public-key={process.env.NEXT_PUBLIC_PUBLIC_KEY}
-      />
-    </>
-  );
-}
-
-export default MyApp;
-```
-
----
-
-## 📘 WordPress
-
-### Método 1: Plugin "Insert Headers and Footers"
-
-1. Instala el plugin "Insert Headers and Footers"
-2. Ve a **Configuración → Insert Headers and Footers**
-3. Pega en "Scripts in Footer":
-
-```html
-<script
+<Script
   src="https://cdn.tu-saas.com/chat-widget/latest/chat-widget.js"
-  data-tenant-id="YOUR_TENANT_ID"
-  data-public-key="YOUR_PUBLIC_KEY"
-></script>
+  strategy="afterInteractive"
+  data-tenant-id="TENANT_123"
+  data-public-key="pk_live_xxx"
+/>
 ```
 
-### Método 2: Editar `footer.php` del tema
-
-```php
-<!-- wp-content/themes/tu-tema/footer.php -->
-
-<?php wp_footer(); ?>
-
-<script
-  src="https://cdn.tu-saas.com/chat-widget/latest/chat-widget.js"
-  data-tenant-id="<?php echo get_option('chat_widget_tenant_id'); ?>"
-  data-public-key="<?php echo get_option('chat_widget_public_key'); ?>"
-></script>
-
-</body>
-</html>
-```
-
-### Método 3: Plugin personalizado
-
-Crear plugin en `wp-content/plugins/chat-widget/chat-widget.php`:
-
-```php
-<?php
-/**
- * Plugin Name: Chat Agéntico Widget
- * Description: Integra el chat de reservas
- * Version: 1.0
- */
-
-function chat_widget_enqueue_script() {
-    wp_enqueue_script(
-        'chat-agent-widget',
-        'https://cdn.tu-saas.com/chat-widget/latest/chat-widget.js',
-        array(),
-        null,
-        true
-    );
-    
-    wp_add_inline_script('chat-agent-widget', '
-        document.currentScript.setAttribute("data-tenant-id", "' . get_option('chat_tenant_id') . '");
-        document.currentScript.setAttribute("data-public-key", "' . get_option('chat_public_key') . '");
-    ', 'before');
-}
-add_action('wp_enqueue_scripts', 'chat_widget_enqueue_script');
-
-// Página de configuración en admin
-function chat_widget_settings_page() {
-    add_options_page(
-        'Chat Widget Settings',
-        'Chat Widget',
-        'manage_options',
-        'chat-widget',
-        'chat_widget_settings_html'
-    );
-}
-add_action('admin_menu', 'chat_widget_settings_page');
-
-function chat_widget_settings_html() {
-    ?>
-    <div class="wrap">
-        <h1>Configuración Chat Widget</h1>
-        <form method="post" action="options.php">
-            <?php
-            settings_fields('chat_widget');
-            do_settings_sections('chat_widget');
-            submit_button();
-            ?>
-        </form>
-    </div>
-    <?php
-}
-```
-
----
-
-## 🛍️ Shopify
-
-### Método 1: Editar tema
-
-1. Ve a **Tienda online → Temas → Acciones → Editar código**
-2. Abre `layout/theme.liquid`
-3. Antes del cierre `</body>`, agrega:
-
-```liquid
-<script
-  src="https://cdn.tu-saas.com/chat-widget/latest/chat-widget.js"
-  data-tenant-id="{{ settings.chat_tenant_id }}"
-  data-public-key="{{ settings.chat_public_key }}"
-></script>
-```
-
-4. En `config/settings_schema.json`, agrega configuración:
-
-```json
-{
-  "name": "Chat Widget",
-  "settings": [
-    {
-      "type": "text",
-      "id": "chat_tenant_id",
-      "label": "Tenant ID"
-    },
-    {
-      "type": "text",
-      "id": "chat_public_key",
-      "label": "Public Key"
-    }
-  ]
-}
-```
-
----
-
-## 🎨 Webflow
-
-1. Ve a **Project Settings → Custom Code**
-2. En **Footer Code**, pega:
-
-```html
-<script
-  src="https://cdn.tu-saas.com/chat-widget/latest/chat-widget.js"
-  data-tenant-id="YOUR_TENANT_ID"
-  data-public-key="YOUR_PUBLIC_KEY"
-></script>
-```
-
-3. Publica el sitio
-
----
-
-## 🔶 Wix
-
-1. Ve a **Configuración → Gestionar código personalizado**
-2. Clic en **+ Agregar código personalizado**
-3. Pega el script
-4. Selecciona:
-   - **Ubicación**: Body - final
-   - **Páginas**: Todas las páginas
-5. Guarda y publica
-
----
-
-## 📦 Squarespace
-
-1. Ve a **Configuración → Avanzado → Inyección de código**
-2. En **Footer**, pega:
-
-```html
-<script
-  src="https://cdn.tu-saas.com/chat-widget/latest/chat-widget.js"
-  data-tenant-id="YOUR_TENANT_ID"
-  data-public-key="YOUR_PUBLIC_KEY"
-></script>
-```
-
-3. Guarda
-
----
-
-## 📱 React Native / Mobile
-
-El widget está diseñado para web. Para apps móviles:
-
-### Opción 1: WebView con widget
+Si se usa App Router:
 
 ```jsx
-import { WebView } from 'react-native-webview';
-
-export default function ChatScreen() {
-  const html = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta name="viewport" content="width=device-width, initial-scale=1">
-    </head>
-    <body>
-      <div id="chat-container"></div>
-      <script
-        src="https://cdn.tu-saas.com/chat-widget/latest/chat-widget.js"
-        data-tenant-id="YOUR_TENANT_ID"
-        data-public-key="YOUR_PUBLIC_KEY"
-        data-auto-open="true"
-      ></script>
-    </body>
-    </html>
-  `;
-  
-  return <WebView source={{ html }} />;
-}
+<Script src="..." />
 ```
-
-### Opción 2: API GraphQL directa
-
-Usar directamente la API GraphQL del backend sin widget.
 
 ---
 
-## 🧪 Google Tag Manager
+# 🅰️ 4. Integración en Angular
 
-Si usas GTM:
-
-1. Ve a **Etiquetas → Nueva**
-2. Tipo: **HTML personalizado**
-3. Pega:
+En `index.html`:
 
 ```html
-<script>
-(function() {
-  var script = document.createElement('script');
-  script.src = 'https://cdn.tu-saas.com/chat-widget/latest/chat-widget.js';
-  script.setAttribute('data-tenant-id', 'YOUR_TENANT_ID');
-  script.setAttribute('data-public-key', 'YOUR_PUBLIC_KEY');
-  document.body.appendChild(script);
-})();
-</script>
+<script src="https://cdn.tu-saas.com/chat-widget/latest/chat-widget.js"
+        data-tenant-id="TENANT_123"
+        data-public-key="pk_live_xxx"></script>
 ```
 
-4. Activador: **Todas las páginas**
-5. Guarda y publica
+Y declarar:
+
+```typescript
+declare var ChatAgentWidget: any;
+```
 
 ---
 
-## 📚 Documentos relacionados
+# 🖖 5. Integración en Vue
 
-- [Guía principal del widget](/widget/README.md)
-- [API JavaScript completa](/widget/api-reference.md)
+Agregar script en `public/index.html`:
+
+```html
+<script src="https://cdn.tu-saas.com/chat-widget/latest/chat-widget.js"
+        data-tenant-id="TENANT_123"
+        data-public-key="pk_live_xxx"></script>
+```
+
+---
+
+# 🛍️ 6. Integración en Shopify
+
+**Shopify Themes (Online Store > Theme > Edit Code)**
+
+Agregar en `theme.liquid` justo antes de `</body>`:
+
+```html
+<script src="https://cdn..."></script>
+```
+
+---
+
+# 🌐 7. Integración en WordPress
+
+## Método A: WPCode
+
+- Plugin → WPCode
+- "Add Snippet"
+- "Custom HTML"
+- Pegar el script.
+
+## Método B: Editor del tema
+
+Insertar en `footer.php` antes de `</body>`.
+
+---
+
+# 🧱 8. Integración en Webflow
+
+En el proyecto: **Settings → Custom Code → Footer**
+
+Pegar `<script>`
+
+Publicar cambios.
+
+---
+
+# 🧬 9. Integración en Wix
+
+**Settings**
+
+- Custom Code
+- Add Code to All Pages
+- Ubicar en "Body - end"
+
+---
+
+# 🏢 10. Integración en Portales Corporativos
+
+El widget funciona perfectamente en:
+
+- Liferay
+- SharePoint
+- Portales internos
+- Iframes de intranet
+
+Solo se requiere:
+
+- permitir el dominio del portal en `allowedOrigins`
+- que el portal permita scripts externos
+
+---
+
+# 📌 11. Versionado del Script
+
+Hay 3 formas de cargar el widget:
+
+## 11.1 Última versión estable
+
+```html
+<script src="https://cdn.../chat-widget/latest/chat-widget.js"></script>
+```
+
+## 11.2 Versión fija (para control empresarial)
+
+```html
+<script src="https://cdn.../chat-widget/v1.2.5/chat-widget.js"></script>
+```
+
+## 11.3 Canary (para pruebas)
+
+```html
+<script src="https://cdn.../chat-widget/canary/chat-widget.js"></script>
+```
+
+---
+
+# 🔐 12. Requisitos de Seguridad / CSP
+
+Si el sitio usa Content Security Policy, agregar:
+
+```
+script-src 'self' https://cdn.tu-saas.com;
+connect-src https://api.tu-saas.com;
+img-src data: https://cdn.tu-saas.com;
+style-src 'unsafe-inline';
+```
+
+---
+
+# 🧯 13. Troubleshooting
+
+## 13.1 El widget no aparece
+
+- revisar consola → ¿error CSP?
+- revisar panel admin → ¿dominio en `allowedOrigins`?
+- revisar API key → ¿activa?
+
+## 13.2 Error: ORIGIN_NOT_ALLOWED
+
+- agregar dominio al panel admin → "Allowed Origins"
+
+## 13.3 Error: AUTH_FAILED
+
+- regenerar API key
+- actualizar snippet
+
+## 13.4 El widget aparece pero no responde
+
+- AppSync inaccesible
+- revisar red
+- revisar logs en CloudWatch
+
+## 13.5 Conflicto con z-index
+
+Usar:
+
+```javascript
+ChatAgentWidget.init({ zIndex: 999999 });
+```
+
+---
+
+# 🧠 14. Self-Hosting Opcional
+
+El tenant enterprise puede auto-hospedar el widget:
+
+1. Descargar el build: `chat-widget.js`
+2. Subir a su propio bucket:
+   ```
+   https://cdn.cliente.com/widget/chat.js
+   ```
+3. Actualizar la referencia del script:
+   ```html
+   <script src="https://cdn.cliente.com/widget/chat.js">
+   ```
+
+**Limitaciones:**
+
+- no recibe updates automáticos
+- no obtiene mejoras de seguridad inmediata
+- requiere permitir su dominio en `allowedOrigins`
+
+---
+
+# 🔮 15. Roadmap Embedding Guide
+
+- scripts "one-line installer"
+- modo iFrame sandbox completo
+- modo inline dentro de componentes
+- plugin para React / Vue / Angular
+- integración directa con Shopify App Store
+
+---
+
+# ✔️ Fin del archivo
