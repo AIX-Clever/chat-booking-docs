@@ -1,72 +1,295 @@
-# Widget Embebible — Guía de Integración
+# Widget Público — SaaS Agentic Booking Chat
 
-Este documento describe cómo integrar el **chat agéntico** en cualquier sitio web usando el widget JavaScript embebible.
+El widget es el componente que se integra en el sitio del cliente final para permitir que los usuarios interactúen con el agente conversacional y reserven servicios.
+
+Este archivo explica:
+
+- cómo integrarlo,  
+- cómo configurarlo,  
+- cómo funcionan los eventos,  
+- cómo diagnosticar problemas,  
+- cómo operar en modo multi-tenant.
 
 ---
 
-## 🎯 Integración básica
+## 🎯 1. Objetivo del Widget
 
-### Paso 1: Obtener credenciales
+El widget debe ser:
 
-Desde el panel administrativo, obtén:
+- **fácil de integrar** (solo un `<script>`),
+- **seguro** (API key pública + allowedOrigins),
+- **ligero** (bundle UMD optimizado),
+- **personalizable** (tema, idioma, IA),
+- **multi-tenant** (cada empresa tiene su configuración),
+- **comunicado por GraphQL** con AppSync.
 
-- **Tenant ID**: identificador único de tu empresa
-- **Public API Key**: clave pública para el widget (formato: `pk_live_...`)
+---
 
-### Paso 2: Insertar el script
+## 🚀 2. Integración básica (script)
 
-Agrega el siguiente código antes del cierre del `</body>`:
+El cliente final solo debe incluir:
 
 ```html
-<script
-  src="https://cdn.tu-saas.com/chat-widget/latest/chat-widget.js"
-  data-tenant-id="YOUR_TENANT_ID"
-  data-public-key="YOUR_PUBLIC_KEY"
-></script>
+<script src="https://cdn.tu-saas.com/chat-widget/latest/chat-widget.js"
+        data-tenant-id="TENANT_123"
+        data-public-key="pk_live_XXXX"
+        data-language="es"
+        data-position="right"
+        data-auto-open="false"></script>
 ```
 
-### Paso 3: ¡Listo!
-
-El widget aparecerá automáticamente como un botón flotante en la esquina inferior derecha.
+Al cargar, automáticamente aparece el botón flotante del chat.
 
 ---
 
-## ⚙️ Configuración avanzada
+## ✨ 3. Atributos soportados
 
-### Opciones disponibles (atributos `data-*`)
+| Atributo | Tipo | Descripción |
+|----------|------|-------------|
+| `data-tenant-id` | string | Identificador único del tenant |
+| `data-public-key` | string | API key pública del tenant |
+| `data-language` | es, en, pt | Idioma inicial del widget |
+| `data-position` | left, right | Ubicación del botón |
+| `data-auto-open` | true, false | Si el chat se abre automáticamente |
+| `data-theme-color` | string | Color principal (hex o rgb) |
 
-| Atributo | Tipo | Default | Descripción |
-|----------|------|---------|-------------|
-| `data-tenant-id` | string | **requerido** | ID de tu tenant |
-| `data-public-key` | string | **requerido** | API Key pública |
-| `data-env` | string | `prod` | Ambiente: `prod`, `qa`, `dev` |
-| `data-language` | string | `es-CL` | Idioma del widget |
-| `data-primary-color` | string | `#1976d2` | Color principal (hex) |
-| `data-position` | string | `bottom-right` | Posición: `bottom-right`, `bottom-left` |
-| `data-auto-open` | boolean | `false` | Abrir automáticamente al cargar |
-| `data-greeting-message` | string | (auto) | Mensaje inicial personalizado |
-| `data-z-index` | number | `9999` | z-index del widget |
+Estos atributos pueden ser sobrescritos con un `ChatAgentWidget.init()`.
 
-### Ejemplo con opciones personalizadas
+---
+
+## 🎨 4. Personalización (branding)
+
+Desde el panel admin, el tenant puede configurar:
+
+- color primario
+- mensaje de bienvenida
+- idioma
+- posición
+- auto-open
+- logo opcional
+- texto del header
+
+El widget obtiene estas configuraciones automáticamente desde AppSync.
+
+---
+
+## 🧠 5. Modos de Agente (FSM / IA)
+
+El widget no sabe si el agente opera con IA o modo determinístico; simplemente envía eventos al backend y recibe mensajes.
+
+### Modo FSM (sin IA)
+
+- Conversación guiada
+- Bajo costo
+- Ideal para planes FREE y PRO
+
+### Modo IA (Bedrock Agent Core)
+
+- Conversación natural
+- Interpretación de intención
+- Ideal para BUSINESS / ENTERPRISE
+
+La activación de IA depende de la configuración del tenant.
+
+---
+
+## 🔌 6. API JavaScript del Widget
+
+Después de cargar el script, se expone:
+
+```
+window.ChatAgentWidget
+```
+
+### Métodos disponibles
+
+#### 6.1 Inicializar manualmente
+
+```javascript
+ChatAgentWidget.init({
+  tenantId: "TENANT_123",
+  publicKey: "pk_live_XXXX",
+  language: "es",
+  position: "right",
+  themeColor: "#FF4B8C",
+  autoOpen: false
+});
+```
+
+#### 6.2 Abrir el chat programáticamente
+
+```javascript
+ChatAgentWidget.open();
+```
+
+#### 6.3 Cerrar el chat
+
+```javascript
+ChatAgentWidget.close();
+```
+
+#### 6.4 Escuchar eventos del widget
+
+```javascript
+ChatAgentWidget.on("booking:created", (payload) => {
+  console.log("Nueva reserva:", payload);
+});
+```
+
+Eventos completos más abajo.
+
+---
+
+## 📡 7. Comunicación con el Backend
+
+El widget se comunica exclusivamente mediante GraphQL hacia AppSync, usando la API key del tenant.
+
+**Operaciones típicas:**
+
+- buscar servicios
+- listar profesionales
+- consultar disponibilidad
+- enviar mensaje al agente
+- crear reserva
+
+**Cada request incluye:**
+
+```
+x-api-key: <publicKey>
+x-tenant-id: <tenantId>
+origin: window.location.origin
+```
+
+**AppSync valida:**
+
+- que la API key sea válida
+- que el dominio sea permitido
+- que el tenant exista
+- límites por plan
+
+---
+
+## 📬 8. Eventos del Widget
+
+| Evento | Cuándo ocurre | Payload |
+|--------|---------------|---------|
+| widget:opened | el usuario abre el chat | — |
+| widget:closed | el usuario cierra el chat | — |
+| message:sent | el usuario envía un mensaje | { text } |
+| message:received | el agente responde | { text } |
+| slot:selected | el usuario elige un horario | { serviceId, providerId, slot } |
+| booking:created | se confirma la reserva | { bookingId, providerId, datetime } |
+| error | cualquier error del widget | { code, message } |
+
+**Ejemplo:**
+
+```javascript
+ChatAgentWidget.on("booking:created", (booking) => {
+  gtag("event", "booking_created", booking);
+});
+```
+
+---
+
+## 🌐 9. Multi-idioma
+
+**Soportado:** es, en, pt
+
+El widget detecta idioma así:
+
+1. Si existe `data-language`, usa ese
+2. Si no, intenta detectar idioma del navegador
+3. Si no, usa el idioma del tenant
+4. Fallback: es
+
+Se pueden agregar idiomas adicionales por tenant.
+
+---
+
+## 🧪 10. Testing del Widget
+
+Recomendado:
+
+- **Jest** para unidad
+- **Playwright** para interacción real
+- **Storybook** para probar componentes internos (si se usa internamente)
+
+**Testing básico:**
+
+```bash
+npm run test
+npm run e2e
+```
+
+**Simulación de GraphQL:**
+
+usar "Mock AppSync server" o grabar respuestas con MSW.
+
+---
+
+## 🚨 11. Troubleshooting (problemas comunes)
+
+| Problema | Causa | Solución |
+|----------|-------|----------|
+| Widget no aparece | CSP del sitio bloquea cdn.tu-saas.com | agregar dominio al CSP |
+| Error: ORIGIN_NOT_ALLOWED | dominio no está en allowedOrigins | agregar en panel admin |
+| Error: AUTH_FAILED | API key incorrecta o revocada | regenerar key |
+| No carga disponibilidad | profesional sin disponibilidad | revisar panel admin |
+| Chat nunca responde | error de red o AppSync bloquea request | revisar logs en CloudWatch |
+
+---
+
+## 🚀 12. Ejemplo completo (caso real)
+
+### Caso: "Clínica Dermaskin"
 
 ```html
-<script
-  src="https://cdn.tu-saas.com/chat-widget/latest/chat-widget.js"
-  data-tenant-id="andina"
-  data-public-key="pk_live_abc123xyz"
-  data-language="es-CL"
-  data-primary-color="#e91e63"
-  data-position="bottom-left"
-  data-auto-open="false"
-  data-greeting-message="¡Hola! ¿En qué puedo ayudarte hoy?"
-></script>
+<script src="https://cdn.tu-saas.com/chat-widget/latest/chat-widget.js"
+        data-tenant-id="DERMASKIN_CL"
+        data-public-key="pk_live_derma_01"
+        data-language="es"
+        data-position="left"
+        data-theme-color="#4A90E2"
+        data-auto-open="true"></script>
 ```
+
+**Comportamiento esperado:**
+
+1. El widget aparece bottom-left
+2. Al abrirlo: "Hola 👋 ¿Qué servicio necesitas hoy?"
+3. El usuario escribe: "Consulta dermatológica para mañana"
+4. El agente:
+   - identifica "dermatología"
+   - muestra profesionales
+   - propone horarios
+   - crea reserva
+5. Se dispara: `booking:created`
 
 ---
 
-## 🧑‍💻 API JavaScript avanzada
+## 🧭 13. Roadmap del Widget
 
-### Inicialización programática
+- iFrame secure mode
+- Dark mode automático
+- API de extensiones
+- Soporte para WhatsApp/Instagram Chat (futuro)
+- Animaciones mejoradas
+- Modo minimalista para móviles
+
+---
+
+## 📚 Documentos relacionados
+
+- `/docs/widget/api-reference.md`
+- `/docs/widget/embedding-guide.md`
+- `/docs/architecture/README.md`
+- `/docs/admin/README.md`
+
+---
+
+## 🧑‍💻 Referencia de API JavaScript (legacy)
+
+### Inicialización programática avanzada
 
 Si prefieres controlar el widget por código:
 
