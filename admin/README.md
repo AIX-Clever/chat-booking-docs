@@ -1,371 +1,342 @@
-# Panel Administrativo — Guía de Uso
+# Panel Administrativo — SaaS Agentic Booking Chat
 
-Este documento describe cómo usar el panel administrativo del SaaS para gestionar servicios, profesionales, disponibilidad y configuraciones.
+Panel web donde cada empresa (tenant) gestiona servicios, profesionales, reservas, configuraciones del widget, API keys y modos de IA.
 
----
-
-## 🔑 Acceso al panel
-
-URL: `https://app.tu-saas.com`
-
-**Autenticación**: AWS Cognito
-
-Cada usuario admin tiene acceso solo a su tenant.
+El panel está diseñado para ser **simple**, **rápido**, **multi-tenant**, y completamente desacoplado del widget público.
 
 ---
 
-## 🏠 Dashboard principal
+## 🧭 1. Objetivo del Panel
 
-Al iniciar sesión verás:
+Permitir que cada empresa configure todo lo necesario para operar el sistema:
 
-- **Reservas de hoy**: Lista de bookings confirmados
-- **Mensajes activos**: Conversaciones en curso
-- **Estadísticas del mes**:
-  - Total de reservas
-  - Ingresos generados
-  - Usuarios atendidos
-  - Tasa de conversión del chat
+1. Crear servicios que ofrece  
+2. Crear profesionales  
+3. Configurar disponibilidad semanal  
+4. Definir excepciones (feriados)  
+5. Gestionar reservas  
+6. Configurar el chat (branding, idioma, IA)  
+7. Administrar API keys y allowedOrigins  
+8. Gestionar usuarios internos del tenant (owner/admin/viewer)
 
----
-
-## 🛠️ Gestión de Servicios
-
-### Crear nuevo servicio
-
-1. Ve a **Servicios → Nuevo servicio**
-2. Completa:
-   - **Nombre**: Ej. "Masaje descontracturante"
-   - **Descripción**: Detalle para el cliente
-   - **Categoría**: Ej. "Masajes", "Peluquería", etc.
-   - **Duración**: En minutos (Ej. 60)
-   - **Precio**: Opcional
-3. Clic en **Guardar**
-
-### Editar servicio existente
-
-1. Ve a **Servicios**
-2. Clic en el servicio
-3. Modifica campos necesarios
-4. **Guardar cambios**
-
-### Desactivar un servicio
-
-En lugar de eliminarlo, márcalo como **Inactivo**.
-
-Esto evita que aparezca en el widget, pero conserva histórico de reservas.
+El panel corresponde al "Backoffice" del SaaS.
 
 ---
 
-## 👥 Gestión de Profesionales
+## 🚀 2. Onboarding de un Tenant (primeros 10 minutos)
 
-### Agregar profesional
+El onboarding debe aparecer como una guía en la primera sesión del usuario.
 
-1. Ve a **Profesionales → Nuevo profesional**
-2. Completa:
-   - **Nombre**: Ej. "María González"
-   - **Bio**: Breve descripción
-   - **Servicios que ofrece**: Seleccionar de la lista
-   - **Zona horaria**: Ej. "America/Santiago"
-3. **Guardar**
+### Paso 1 — Crear Servicios  
+Ejemplo: "Masaje Relajación", "Consulta Dermatológica", "Clases de Yoga".
 
-### Editar profesional
+### Paso 2 — Registrar Profesionales  
+Indicar:
+- nombre  
+- bio  
+- servicios que atiende  
+- zona horaria  
 
-1. Ve a **Profesionales**
-2. Clic en el profesional
-3. Modifica información
-4. **Guardar**
+### Paso 3 — Configurar Disponibilidad  
+- horarios semanales por profesional  
+- excepciones (feriados/vacaciones)
 
-### Asignar servicios a un profesional
+### Paso 4 — Generar API Key  
+- copiar snippet de integración  
+- definir allowedOrigins  
+- validar conectividad
 
-En la vista de edición del profesional:
+### Paso 5 — Personalizar el Widget  
+- color  
+- idioma  
+- mensaje de bienvenida  
+- posición  
+- habilitar IA (si el plan lo permite)
 
-1. Sección **Servicios**
-2. Seleccionar checkboxes de los servicios que presta
-3. **Guardar**
-
----
-
-## 📅 Disponibilidad
-
-### Configurar horarios semanales
-
-1. Ve a **Profesionales → [Nombre] → Disponibilidad**
-2. Por cada día de la semana:
-   - Marcar si está disponible
-   - Definir rangos de hora (Ej. 09:00 - 13:00, 15:00 - 19:00)
-   - Agregar pausas/breaks si aplica
-3. **Guardar**
-
-**Ejemplo**:
-
-```
-Lunes:
-  ✅ Disponible
-  Rango 1: 09:00 - 13:00
-  Rango 2: 15:00 - 19:00
-  Break: 11:00 - 11:15
-
-Martes:
-  ✅ Disponible
-  Rango 1: 10:00 - 18:00
-
-Miércoles:
-  ❌ No disponible
-```
-
-### Días libres / excepciones
-
-En **Disponibilidad → Excepciones**:
-
-1. Agregar fecha específica
-2. Marcar como **No disponible**
-3. Guardar
-
-Ejemplo: Vacaciones, feriados, eventos especiales.
+### Paso 6 — Probar la conversación  
+Abrir el widget en un entorno de prueba.
 
 ---
 
-## 📋 Gestión de Reservas
+## 🧩 3. Roles de Usuario
 
-### Ver reservas
+Los roles se almacenan en Cognito como claims.
 
-Ve a **Reservas** para ver:
-
-- **Próximas**: Reservas confirmadas
-- **Pasadas**: Historial
-- **Canceladas**: Reservas anuladas
-
-**Filtros disponibles**:
-- Por fecha
-- Por profesional
-- Por servicio
-- Por estado
-
-### Cancelar una reserva
-
-1. Busca la reserva
-2. Clic en **Cancelar**
-3. Opcional: Agregar motivo
-4. Confirmar
-
-El cliente recibirá notificación automática (si está configurado).
-
-### Exportar reservas
-
-Clic en **Exportar** para descargar CSV con:
-- Fecha y hora
-- Cliente
-- Servicio
-- Profesional
-- Estado
-- Monto
+| Rol | Permisos | Uso típico |
+|-----|----------|------------|
+| **Owner** | Todo, incluyendo facturación, usuarios, API keys | Dueño del tenant |
+| **Admin** | Gestión operativa: servicios, disponibilidad, reservas | Administradores |
+| **Viewer** | Lectura de reservas/servicios | Personal de apoyo |
 
 ---
 
-## 🔑 API Keys
+## 📂 4. Secciones del Panel
 
-### Crear nueva API Key
+El menú principal recomendado es:
 
-1. Ve a **Configuración → API Keys**
-2. Clic en **Nueva clave**
-3. Completa:
-   - **Descripción**: Ej. "Widget sitio web principal"
-   - **Dominios permitidos**: Ej. `https://www.tuempresa.com`
-4. **Crear**
+1. **Dashboard**
+2. **Servicios**
+3. **Profesionales**
+4. **Disponibilidad**
+5. **Reservas**
+6. **Widget & Branding**
+7. **Configuración de IA**
+8. **API Keys & Seguridad**
+9. **Usuarios del Tenant**
+10. **Uso & Métricas**
 
-Se genera una clave tipo `pk_live_abc123xyz`.
-
-⚠️ **Importante**: Copia la clave inmediatamente. No se mostrará de nuevo.
-
-### Revocar una API Key
-
-1. Ve a **API Keys**
-2. Encuentra la clave
-3. Clic en **Revocar**
-4. Confirmar
-
-La clave dejará de funcionar inmediatamente.
+A continuación, cada sección con su funcionalidad y contratos de API.
 
 ---
 
-## 🎨 Configuración del Widget
+## 📊 5. Dashboard
 
-### Personalizar apariencia
+Información de negocio:
 
-Ve a **Configuración → Widget**:
+- reservas del día / semana / mes  
+- servicios más utilizados  
+- profesionales más agendados  
+- uso del widget  
+- errores más frecuentes  
+- límites del plan y consumo  
 
-- **Color principal**: Selector de color (hex)
-- **Posición**: Bottom-right / Bottom-left
-- **Mensaje de bienvenida**: Texto personalizado
-- **Idioma por defecto**: es-CL, pt-BR, etc.
-- **Auto-abrir**: Sí/No
-
-**Vista previa** en vivo del widget aparece al lado.
-
-### Configurar políticas de reserva
-
-En **Configuración → Reservas**:
-
-- **Anticipación mínima**: Minutos antes de poder reservar
-- **Anticipación máxima**: Días hacia adelante
-- **Permitir cancelación**: Sí/No
-- **Horas antes para cancelar**: Límite
+> Los datos se obtienen desde `TenantUsage` o consultas agregadas en DynamoDB.
 
 ---
 
-## 🤖 Configuración del Agente
+## 🧾 6. Servicios
 
-### Mensajes personalizados
+### 6.1 Funcionalidad
 
-Ve a **Configuración → Agente → Mensajes**:
+- Crear servicio  
+- Editar  
+- Activar/desactivar  
+- Eliminar (soft delete)
 
-Personaliza respuestas:
+### 6.2 Campos
 
-- Saludo inicial
-- Servicio no encontrado
-- Sin disponibilidad
-- Confirmación de reserva
+- `name`  
+- `description`  
+- `durationMinutes`  
+- `category` (opcional)  
+- `price` (opcional)  
+- `active`
 
-**Variables disponibles**:
-- `{userName}` - Nombre del usuario
-- `{serviceName}` - Servicio seleccionado
-- `{providerName}` - Profesional
-- `{dateTime}` - Fecha y hora
+### 6.3 GraphQL
 
-**Ejemplo**:
+```graphql
+type Query {
+  adminListServices: [Service!]!
+  adminGetService(id: ID!): Service
+}
 
-```
-Mensaje de confirmación:
-"¡Listo, {userName}! Tu reserva de {serviceName} con {providerName} está confirmada para el {dateTime}. Te enviaremos un recordatorio 24 horas antes."
+type Mutation {
+  adminCreateService(input: AdminCreateServiceInput!): Service!
+  adminUpdateService(input: AdminUpdateServiceInput!): Service!
+  adminDeleteService(id: ID!): Boolean!
+}
 ```
 
-### IA opcional
-
-Si tu plan incluye AI:
-
-**Configuración → Agente → IA**:
-
-- **Proveedor**: Bedrock, OpenAI, etc.
-- **Modelo**: Claude 3 Sonnet, GPT-4, etc.
-- **Temperatura**: 0 (preciso) a 1 (creativo)
-- **Prompt del sistema**: Instrucciones base
+El backend obtiene `tenantId` del JWT. No se envía en los inputs.
 
 ---
 
-## 📊 Reportes y Analytics
+## 👩‍⚕️ 7. Profesionales
 
-### Métricas disponibles
+### 7.1 Funcionalidad
 
-**Dashboard → Reportes**:
+- Crear profesional
+- Asignar servicios
+- Editar datos
+- Activar/desactivar
+- Asignar zona horaria (por profesional)
 
-- **Conversiones**:
-  - Conversaciones iniciadas
-  - Conversaciones que terminaron en reserva
-  - Tasa de conversión
-- **Uso del chat**:
-  - Mensajes por día
-  - Horarios de mayor actividad
-- **Reservas**:
-  - Total por servicio
-  - Total por profesional
-  - Ingresos generados
-- **Clientes**:
-  - Nuevos vs. recurrentes
-  - Servicios más solicitados
+### 7.2 GraphQL
 
-### Exportar reportes
+```graphql
+type Query {
+  adminListProviders: [Provider!]!
+  adminGetProvider(id: ID!): Provider
+}
 
-Clic en **Exportar** para descargar en:
-- CSV
-- Excel
-- PDF
+type Mutation {
+  adminCreateProvider(input: AdminCreateProviderInput!): Provider!
+  adminUpdateProvider(input: AdminUpdateProviderInput!): Provider!
+  adminDeleteProvider(id: ID!): Boolean!
+}
+```
 
 ---
 
-## 👥 Gestión de Usuarios
+## 🗓 8. Disponibilidad
 
-### Invitar nuevo admin
+### 8.1 Funcionalidad
 
-1. Ve a **Configuración → Usuarios**
-2. Clic en **Invitar usuario**
-3. Completa:
-   - Email
-   - Rol: Admin, Staff, Viewer
-4. Enviar invitación
+- disponibilidad recurrente (Lunes–Domingo)
+- múltiples ventanas horarias por día
+- excepciones
+- manejo de timezones
+- preview del calendario por profesional
 
-El usuario recibirá email con link de activación.
+### 8.2 GraphQL
 
-### Roles disponibles
-
-| Rol | Permisos |
-|-----|----------|
-| **Admin** | Acceso total |
-| **Staff** | Ver reservas, gestionar disponibilidad |
-| **Viewer** | Solo lectura |
+```graphql
+type Mutation {
+  adminSetProviderAvailability(input: AdminSetProviderAvailabilityInput!): Boolean!
+}
+```
 
 ---
 
-## 💳 Planes y facturación
+## 📅 9. Reservas
 
-### Ver plan actual
+### 9.1 Operaciones
 
-**Configuración → Plan**:
+- listar
+- ver detalle
+- cancelar
+- re-agendar (futuro)
+- filtrar por profesional, servicio, rango de fecha, estado
 
-- Plan contratado (FREE, PRO, ENTERPRISE)
-- Límites mensuales:
-  - Mensajes
-  - Reservas
-  - Tokens IA
-- Uso actual vs. límite
+### 9.2 GraphQL
 
-### Actualizar plan
+```graphql
+type Query {
+  adminListBookings(filter: AdminListBookingsFilter): [Booking!]!
+  adminGetBooking(id: ID!): Booking
+}
 
-Clic en **Actualizar plan** para ver opciones.
-
-### Métodos de pago
-
-**Configuración → Facturación**:
-
-- Agregar tarjeta de crédito
-- Ver historial de pagos
-- Descargar facturas
+type Mutation {
+  adminCancelBooking(id: ID!): Booking!
+}
+```
 
 ---
 
-## 🔔 Notificaciones
+## 🎨 10. Widget & Branding
 
-### Configurar notificaciones
+**Configuración soportada:**
 
-**Configuración → Notificaciones**:
+- color primario
+- posición del botón (izquierda/derecha)
+- idioma
+- mensaje de bienvenida
+- auto-open
+- logo opcional
+- plan-dependent: soporte para temas avanzados
 
-**Email**:
-- Nueva reserva
-- Cancelación
-- Recordatorio (24h antes)
-- Reporte diario
+**GraphQL:**
 
-**SMS** (si está habilitado):
-- Confirmación de reserva al cliente
-- Recordatorio
-
-**Webhook** (avanzado):
-- URL de tu sistema
-- Enviar eventos en tiempo real
-
----
-
-## 🆘 Soporte
-
-Desde el panel, puedes:
-
-- **Chat de soporte**: Botón inferior derecho
-- **Documentación**: Link en menú
-- **Estado del servicio**: status.tu-saas.com
+```graphql
+type Mutation {
+  adminUpdateWidgetSettings(input: WidgetSettingsInput!): TenantSettings!
+}
+```
 
 ---
 
-## 📚 Documentos relacionados
+## 🤖 11. Configuración de IA
 
-- [Widget — Guía de integración](/widget/README.md)
-- [Arquitectura del sistema](/architecture/README.md)
-- [Seguridad](/security/README.md)
+Cada tenant puede activar/desactivar IA según su plan.
+
+### Modos soportados
+
+| Modo | Descripción | Costo | Plan |
+|------|-------------|-------|------|
+| FSM | Conversación determinística | 0 USD | FREE/PRO |
+| NLP asistido | Haiku para intención y entidades | Bajo | PRO/BUSINESS |
+| IA completa | Bedrock Agent Core + Sonnet | Medio/Alto | BUSINESS/ENTERPRISE |
+
+**GraphQL:**
+
+```graphql
+type Mutation {
+  adminUpdateAISettings(input: AISettingsInput!): TenantSettings!
+}
+```
+
+---
+
+## 🔑 12. API Keys & Seguridad
+
+### Funcionalidad
+
+- crear API key
+- editar allowedOrigins
+- rotar keys
+- revocar keys
+- ver última vez utilizada
+
+### Seguridad
+
+- las keys se almacenan como hash
+- nunca se muestra una key completa después de creada
+- allowedOrigins obligatorio
+- rate limiting por tenant y por key
+
+### GraphQL
+
+```graphql
+type Mutation {
+  adminCreateApiKey(input: AdminCreateApiKeyInput!): TenantApiKey!
+  adminUpdateApiKey(input: AdminUpdateApiKeyInput!): TenantApiKey!
+  adminRevokeApiKey(id: ID!): Boolean!
+}
+```
+
+---
+
+## 👤 13. Usuarios del Tenant
+
+**Permite:**
+
+- invitar usuarios
+- asignar roles
+- desactivar usuarios
+- ver actividad reciente
+
+Se recomienda integrar Cognito Hosted UI o un IdP corporativo en planes Enterprise.
+
+---
+
+## 📈 14. Uso & Métricas
+
+**Visión del consumo:**
+
+- mensajes del widget
+- reservas creadas
+- tokens consumidos por IA
+- límites según plan
+- peaks de tráfico
+
+Estos datos se almacenan por día/mes en `TenantUsage`.
+
+---
+
+## 🛑 15. Errores frecuentes y soluciones
+
+| Error | Causa | Solución |
+|-------|-------|----------|
+| ORIGIN_NOT_ALLOWED | dominio no está en allowedOrigins | actualizar API key |
+| AUTH_FAILED | API key inválida/revocada | generar nueva |
+| reserva no aparece | profesional sin disponibilidad | revisar disponibilidad |
+| widget no carga | CSP del sitio bloquea script | permitir cdn.tu-saas.com |
+
+---
+
+## 🧭 16. Roadmap del Panel
+
+- gestión de sucursales (multi-branch)
+- etiquetas para servicios
+- métricas de conversión del widget
+- editor visual de flujos para el agente
+- plantillas de disponibilidad
+
+---
+
+## 📚 Relacionado
+
+- `/docs/architecture/appsync-schema.md`
+- `/docs/architecture/dynamodb-schema.md`
+- `/docs/security/README.md`
+- `/docs/widget/README.md`
