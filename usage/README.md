@@ -1,295 +1,355 @@
-# Flujo de Uso — Chat Agéntico de Reservas
+# Guía de Uso del Agente Conversacional
+SaaS Agentic Booking Chat
 
-Este documento describe el flujo completo de interacción con el chat agéntico desde la perspectiva del usuario final y del sistema.
-
----
-
-## 👤 Perspectiva del Usuario Final
-
-### Flujo típico de reserva
-
-```mermaid
-graph TD
-    A[Usuario visita sitio web] --> B[Ve botón de chat flotante]
-    B --> C[Hace clic en botón]
-    C --> D[Chat se abre con saludo]
-    D --> E[Usuario escribe: 'Necesito un masaje']
-    
-    E --> F{Agente detecta intención}
-    F --> G[Agente pregunta tipo de masaje]
-    G --> H[Muestra chips con opciones]
-    
-    H --> I[Usuario selecciona 'Masaje descontracturante']
-    I --> J[Agente confirma servicio]
-    
-    J --> K{¿Más de 1 profesional?}
-    K -->|Sí| L[Muestra lista de profesionales]
-    K -->|No| M[Auto-selecciona profesional]
-    
-    L --> N[Usuario elige profesional]
-    M --> O[Agente consulta disponibilidad]
-    N --> O
-    
-    O --> P{¿Hay slots disponibles?}
-    P -->|Sí| Q[Muestra horarios disponibles]
-    P -->|No| R[Informa que no hay disponibilidad]
-    
-    Q --> S[Usuario selecciona horario]
-    S --> T[Agente pide confirmación]
-    
-    T --> U[Usuario confirma]
-    U --> V[Sistema crea reserva]
-    
-    V --> W{¿Reserva exitosa?}
-    W -->|Sí| X[Muestra confirmación + detalles]
-    W -->|No| Y[Informa error, ofrece alternativas]
-    
-    X --> Z[Usuario recibe email de confirmación]
-    Y --> Q
-```
+Este documento explica cómo funciona el flujo conversacional del agente, cómo se mantienen los estados, cómo se manejan los mensajes del usuario y cómo interactúa el agente con el backend (con o sin IA).
 
 ---
 
-## 🤖 Máquina de Estados del Agente (FSM)
+# 🎯 1. Objetivo del Agente Conversacional
 
-### Estados disponibles
+El agente guía a los usuarios a reservar un servicio, seleccionando:
 
-```mermaid
-stateDiagram-v2
-    [*] --> INIT
-    
-    INIT --> SERVICE_PENDING: Usuario inicia conversación
-    
-    SERVICE_PENDING --> SERVICE_SELECTED: Servicio identificado
-    SERVICE_PENDING --> SERVICE_PENDING: Aclaración necesaria
-    
-    SERVICE_SELECTED --> PROVIDER_PENDING: Múltiples profesionales
-    SERVICE_SELECTED --> PROVIDER_SELECTED: Un solo profesional
-    
-    PROVIDER_PENDING --> PROVIDER_SELECTED: Usuario elige profesional
-    
-    PROVIDER_SELECTED --> SLOT_PENDING: Hay disponibilidad
-    PROVIDER_SELECTED --> END: Sin disponibilidad
-    
-    SLOT_PENDING --> CONFIRM_PENDING: Usuario elige horario
-    SLOT_PENDING --> SLOT_PENDING: Slot ocupado, mostrar otros
-    
-    CONFIRM_PENDING --> BOOKING_CONFIRMED: Usuario confirma
-    CONFIRM_PENDING --> SLOT_PENDING: Usuario quiere cambiar
-    
-    BOOKING_CONFIRMED --> END
-    END --> [*]
-```
+1) un tipo de servicio  
+2) un profesional  
+3) un horario disponible  
+4) confirmación final  
 
-### Descripción de estados
-
-| Estado | Descripción | Siguiente estado |
-|--------|-------------|------------------|
-| `INIT` | Conversación iniciada, sin intención clara | `SERVICE_PENDING` |
-| `SERVICE_PENDING` | Agente necesita identificar servicio | `SERVICE_SELECTED` |
-| `SERVICE_SELECTED` | Servicio confirmado | `PROVIDER_PENDING` o `PROVIDER_SELECTED` |
-| `PROVIDER_PENDING` | Usuario debe elegir profesional | `PROVIDER_SELECTED` |
-| `PROVIDER_SELECTED` | Profesional seleccionado | `SLOT_PENDING` |
-| `SLOT_PENDING` | Usuario debe elegir horario | `CONFIRM_PENDING` |
-| `CONFIRM_PENDING` | Esperando confirmación final | `BOOKING_CONFIRMED` |
-| `BOOKING_CONFIRMED` | Reserva creada exitosamente | `END` |
+El agente busca ser:
+- rápido  
+- claro  
+- adaptable  
+- configurable  
+- capaz de operar en modo determinístico o con IA
 
 ---
 
-## 💬 Ejemplos de conversación
+# 🧠 2. Modos del Agente
 
-### Ejemplo 1: Flujo completo exitoso
+El agente soporta **dos modos**, configurables por tenant:
 
-```
-👤 Usuario: Hola
-🤖 Agente: ¡Hola! ¿En qué puedo ayudarte hoy?
+---
 
-👤 Usuario: Necesito un masaje
-🤖 Agente: Perfecto, ¿qué tipo de masaje buscas?
-         [Masaje descontracturante] [Masaje relajante] [Masaje deportivo]
+## 2.1 Modo FSM (sin IA)
 
-👤 Usuario: [selecciona "Masaje descontracturante"]
-🤖 Agente: Excelente elección. Estos son los profesionales disponibles:
-         
-         👩 María González - 5 años de experiencia
-         [Elegir a María]
-         
-         👨 Juan Pérez - 3 años de experiencia
-         [Elegir a Juan]
-
-👤 Usuario: [selecciona "María"]
-🤖 Agente: Perfecto. Estos son los horarios disponibles para María:
-         
-         📅 Hoy 16:00
-         📅 Hoy 17:30
-         📅 Mañana 10:00
-         📅 Mañana 11:30
-
-👤 Usuario: [selecciona "Hoy 17:30"]
-🤖 Agente: ¿Confirmas tu reserva?
-         
-         📋 Servicio: Masaje descontracturante (60 min)
-         👩 Profesional: María González
-         📅 Fecha: Hoy 1 de diciembre
-         🕐 Hora: 17:30
-         💰 Precio: $25.000
-         
-         [Confirmar] [Cambiar horario]
-
-👤 Usuario: [Confirmar]
-🤖 Agente: ¡Listo! Tu reserva está confirmada.
-         
-         ✅ Reserva #12345
-         📧 Te enviamos un email con los detalles
-         📲 Recibirás un recordatorio 24 horas antes
-         
-         ¿Necesitas algo más?
-```
-
-### Ejemplo 2: Sin disponibilidad
+FSM = Finite State Machine  
+El bot sigue una secuencia fija:
 
 ```
-👤 Usuario: Quiero una sesión de kinesiología
-🤖 Agente: Entendido. ¿Con qué profesional prefieres?
-         [Dr. Carlos Soto] [Dra. Ana López]
-
-👤 Usuario: [selecciona "Dr. Carlos Soto"]
-🤖 Agente: Lamentablemente el Dr. Carlos Soto no tiene disponibilidad 
-         en los próximos 7 días.
-         
-         ¿Te gustaría ver la disponibilidad de:
-         👩 Dra. Ana López
-         
-         O prefieres que te avisemos cuando el Dr. Soto tenga horarios?
-         
-         [Ver a Dra. López] [Avisarme después]
+INIT
+→ SERVICE_PENDING
+→ SERVICE_SELECTED
+→ PROVIDER_PENDING
+→ PROVIDER_SELECTED
+→ SLOT_PENDING
+→ CONFIRM_PENDING
+→ BOOKING_CONFIRMED
 ```
 
-### Ejemplo 3: Slot ocupado mientras el usuario decide
+Características:
+- Predecible  
+- Muy barato (0 USD cost)  
+- Ideal para FREE/PRO  
+
+---
+
+## 2.2 Modo IA (Bedrock Agent Core)
+
+El agente usa IA para:
+- entender lenguaje natural  
+- interpretar intención  
+- extraer entidades (servicio, fecha, hora)  
+- delegar pasos a "tools" (Lambdas del backend)
+
+Beneficios:
+- Conversación natural  
+- Menos fricción  
+- Maneja ambigüedad  
+- Capacidad de explicar opciones  
+
+Flujo típico:
 
 ```
-👤 Usuario: [selecciona "Hoy 17:30"]
-🤖 Agente: ⚠️ Lo siento, ese horario acaba de ser reservado por otro usuario.
-         
-         Aquí tienes otros horarios disponibles:
-         📅 Hoy 18:00
-         📅 Mañana 10:00
-         📅 Mañana 15:00
+Mensaje usuario
+→ Bedrock Agent analiza intención
+→ si requiere acción → Tool (Lambda)
+→ Agent genera respuesta
+→ estado se actualiza
+```
+
+Modelos recomendados:
+
+- Claude 3.5 Sonnet (generación)
+- Claude Haiku (intención)
+- Bedrock Agent Core (orquestación)
+
+---
+
+# 🔄 3. Flujo Conversacional Completo (Independiente del modo)
+
+```
+Usuario abre el widget
+↓
+Usuario escribe: "Quiero reservar un masaje"
+↓
+Backend detecta (modo FSM o IA)
+↓
+Agente responde: "¿Qué servicio deseas exactamente?"
+↓
+Usuario selecciona o escribe
+↓
+Backend consulta disponibilidad
+↓
+Usuario elige horario
+↓
+Se crea la reserva
+↓
+Agent confirma
 ```
 
 ---
 
-## 🔄 Casos especiales
+# 🧩 4. Máquina de Estados (FSM)
 
-### Cambio de opinión
+## 4.1 Estados principales
 
-El usuario puede regresar en cualquier momento:
+| Estado | Descripción |
+|--------|-------------|
+| `INIT` | conversación recién iniciada |
+| `SERVICE_PENDING` | agente pide servicio |
+| `SERVICE_SELECTED` | servicio determinado |
+| `PROVIDER_PENDING` | agente pide profesional |
+| `PROVIDER_SELECTED` | profesional determinado |
+| `SLOT_PENDING` | agente pide horario |
+| `CONFIRM_PENDING` | agente pide confirmación |
+| `BOOKING_CONFIRMED` | reserva realizada |
 
-```
-[En estado PROVIDER_SELECTED]
-
-👤 Usuario: Mejor quiero otro servicio
-🤖 Agente: Sin problema, ¿qué servicio prefieres?
-         [vuelve a SERVICE_PENDING]
-```
-
-### Conversación ambigua
-
-```
-👤 Usuario: Quiero algo para relajarme
-🤖 Agente: Entiendo. Tenemos varias opciones para relajarte:
-         
-         💆 Masaje relajante
-         🧘 Sesión de yoga
-         🌿 Aromaterapia
-         
-         ¿Cuál te interesa más?
-```
-
-### Usuario pide información adicional
+## 4.2 Transiciones
 
 ```
-👤 Usuario: ¿Cuánto dura el masaje?
-🤖 Agente: El Masaje descontracturante dura 60 minutos.
-         
-         ¿Te gustaría continuar con la reserva?
-         [Sí, continuar] [Ver otros servicios]
+INIT → SERVICE_PENDING
+SERVICE_PENDING → SERVICE_SELECTED
+SERVICE_SELECTED → PROVIDER_PENDING
+PROVIDER_PENDING → PROVIDER_SELECTED
+PROVIDER_SELECTED → SLOT_PENDING
+SLOT_PENDING → CONFIRM_PENDING
+CONFIRM_PENDING → BOOKING_CONFIRMED
+```
+
+## 4.3 Estados persistentes
+
+Los datos se guardan en DynamoDB (`Conversations`):
+
+```
+{
+  conversationId,
+  tenantId,
+  state,
+  serviceId,
+  providerId,
+  datetime,
+  metadata,
+  lastMessageAt
+}
 ```
 
 ---
 
-## 📊 Métricas del flujo
+# 📡 5. Comportamiento del Agente
 
-### Puntos de medición
+## 5.1 Si el usuario escribe en lenguaje natural
 
-| Punto | Métrica | Objetivo |
-|-------|---------|----------|
-| Inicio conversación | `conversationStarted` | 100% |
-| Servicio identificado | `serviceIdentified` | >80% |
-| Profesional seleccionado | `providerSelected` | >90% |
-| Horario elegido | `slotSelected` | >70% |
-| Reserva confirmada | `bookingConfirmed` | >60% |
+### Ejemplo:
+> "Necesito una limpieza facial mañana a las 5pm"
 
-### Tasa de conversión
+FSM:
+- intenta detectar entidad usando regex simples  
+- si no entiende → pregunta explícita  
+- "¿Qué servicio necesitas?"
 
+IA:
+- usa LLM Haiku/Sonnet para:
+  - detectar "limpieza facial"
+  - detectar "mañana"
+  - detectar "17:00"
+  - buscar disponibilidad automáticamente  
+
+## 5.2 Si el usuario se salta pasos
+Ejemplo:
+> "El viernes con María"
+
+FSM:
+- detecta que falta servicio  
+- responde: "Primero, ¿qué servicio deseas?"
+
+IA:
+- entiende contexto previo  
+- reordena datos faltantes  
+- puede inferir servicio si fue mencionado antes  
+
+## 5.3 Si el usuario pregunta algo irrelevante
+IA responde:
+> "Puedo ayudarte a agendar una reserva. ¿Qué servicio necesitas?"
+
+FSM:
+> "¿Qué servicio deseas reservar?"
+
+---
+
+# 🔧 6. Tools (Lambdas) del Agente IA
+
+Cuando opera con IA, cada acción se delega como "tool":
+
+### Tool: `findServices`
+```json
+{
+  "serviceName": "masaje"
+}
 ```
-Tasa de conversión = (Reservas confirmadas / Conversaciones iniciadas) * 100
+
+### Tool: findProviders
+```json
+{
+  "serviceId": "XYZ"
+}
 ```
 
-**Benchmark**: 40-60% es excelente para un chat agéntico.
+### Tool: findAvailability
+```json
+{
+  "providerId": "ABC",
+  "date": "2025-01-10"
+}
+```
 
-### Puntos de abandono
+### Tool: createBooking
+```json
+{
+  "providerId": "...",
+  "serviceId": "...",
+  "datetime": "..."
+}
+```
 
-Analizar dónde los usuarios abandonan:
-
-1. **Inicio → Servicio**: Mensaje de bienvenida no claro
-2. **Servicio → Profesional**: Opciones confusas
-3. **Profesional → Horario**: Sin disponibilidad
-4. **Horario → Confirmación**: Proceso muy largo
-5. **Confirmación → Reserva**: Error técnico
-
----
-
-## 🎯 Optimizaciones del flujo
-
-### Reducir fricción
-
-✅ **Auto-selección**: Si solo hay 1 opción, seleccionar automáticamente
-✅ **Contexto del usuario**: Si está logueado, pre-rellenar datos
-✅ **Sugerencias inteligentes**: Basadas en historial
-✅ **Slots recomendados**: "Los clientes suelen elegir..."
-
-### Manejo de errores
-
-✅ **Reintentos automáticos**: Si falla una consulta
-✅ **Alternativas**: Siempre ofrecer opciones
-✅ **Mensajes claros**: Sin jerga técnica
-
-### Personalización
-
-✅ **Saludos personalizados**: "Hola Juan, ¿en qué te ayudo?"
-✅ **Recordar preferencias**: "¿Quieres reservar con María como siempre?"
-✅ **Horarios favoritos**: Sugerir horarios similares a reservas previas
+Bedrock Agent Core decide cuándo llamar un tool.
 
 ---
 
-## 🧪 Testing del flujo
+# 🧪 7. Ejemplos de Conversación
 
-### Casos de prueba mínimos
+## Ejemplo 1 — FSM
 
-1. ✅ Usuario completa reserva exitosamente
-2. ✅ Usuario cambia de servicio a mitad de camino
-3. ✅ No hay disponibilidad para el profesional elegido
-4. ✅ Slot se ocupa mientras usuario decide
-5. ✅ Usuario cancela en último momento
-6. ✅ Error de red durante la reserva
-7. ✅ Usuario escribe mensajes ambiguos
-8. ✅ Usuario hace pregunta fuera de contexto
+**Usuario:**
+> Quiero un masaje
+
+**Agente:**
+> ¿Qué tipo de masaje deseas?
+
+**Usuario:**
+> Descontracturante
+
+**Agente:**
+> Perfecto. ¿Con qué profesional te gustaría?
+
+...
+
+## Ejemplo 2 — IA Completa
+
+**Usuario:**
+> Me gustaría agendarme con la doctora Martínez mañana después del almuerzo.
+
+**IA detecta:**
+- servicio: dermatología (si es su único servicio)
+- profesional: Martínez
+- fecha: mañana
+- horario: rango "después del almuerzo"
+
+Tool → disponibilidad
+
+**IA responde:**
+> Tengo el siguiente horario disponible mañana a las 15:30.
+> ¿Lo confirmamos?
 
 ---
 
-## 📚 Documentos relacionados
+# ⚠️ 8. Manejo de Errores
 
-- [Diagramas de secuencia](/usage/sequence-diagrams.md)
-- [Arquitectura del agente](/architecture/lambdas.md)
-- [Widget — API](/widget/api-reference.md)
+| Caso | Respuesta |
+|------|-----------|
+| no hay horarios | "No tengo horarios disponibles ese día. ¿Quieres otra fecha?" |
+| profesional inactivo | "Ese profesional no está disponible hoy. ¿Te muestro otras opciones?" |
+| servicio no existe | "No encontré ese servicio. Los disponibles son…" |
+| mensaje no entendible | "No logré comprender eso. ¿Qué servicio necesitas?" |
+| backend falló | "Estamos teniendo problemas. Intenta de nuevo más tarde." |
+
+---
+
+# 🔄 9. Expiración de Conversación
+
+- TTL configurable (10 min, 30 min, 24h)
+- cuando expiró, se retorna a INIT
+
+---
+
+# 🧩 10. Personalización del Agente por Tenant
+
+Cada tenant puede personalizar:
+
+- primer mensaje
+- tono (formal / casual / neutral)
+- idioma
+- quick replies sugeridas
+- habilitar IA o no
+- tiempo de expiración
+- fallback phrases
+
+Ejemplo en settings:
+
+```javascript
+AISettings {
+  mode: "HAIKU" | "SONNET" | "FSM"
+  style: "friendly"
+  locale: "es"
+  welcomeMessage: "¡Hola! Estoy para ayudarte a reservar."
+}
+```
+
+---
+
+# 🔒 11. Seguridad del Agente
+
+- nunca incluye datos de otros tenants
+- mensajes no se exponen como logs completos
+- IA recibe prompts con PII truncada
+- tools no pueden acceder a más datos que el tenant actual
+- tokens IA se contabilizan por tenant
+
+---
+
+# 📈 12. Métricas del Agente
+
+Por cada tenant se registra:
+
+- mensajes enviados
+- mensajes recibidos
+- pasos completados exitosamente
+- reservas generadas
+- errores
+- tokens IA consumidos
+
+Todo esto alimenta TenantUsage.
+
+---
+
+# 🧭 13. Roadmap Conversacional
+
+- soporte multistep reasoning
+- integración con calendarios externos
+- agent memory avanzada por tenant
+- FAQs específicas por rubro
+- plantillas de conversación por industria
+
+---
+
+# ✔️ Fin del archivo
+
+
