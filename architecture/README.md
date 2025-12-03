@@ -1,245 +1,307 @@
-# Arquitectura Técnica del SaaS Agentic Booking Chat
+# Arquitectura del Sistema — SaaS Agentic Booking Chat
 
-Este documento describe la arquitectura técnica completa del sistema SaaS que permite a múltiples empresas integrar un **chat agéntico con flujo de reservas** en sus sitios web mediante un script embebible.
+Este documento describe la arquitectura completa del proyecto, incluyendo:
+- los componentes principales,
+- el modelo multi-tenant,
+- flujos de datos,
+- decisiones de diseño,
+- extensiones opcionales con IA (Bedrock Agent Core),
+- patrones de escalabilidad.
 
-Está diseñado para ser implementado desde cero por herramientas como **Codex**, **GitHub Copilot**, o cualquier framework IaC.
-
----
-
-## 🏗️ Componentes principales
-
-La arquitectura está compuesta por 7 capas:
-
-1. **Widget Web (JavaScript embebible)**
-2. **Panel Administrativo**
-3. **AppSync (GraphQL API)**
-4. **Lambdas Python (lógica del agente y servicios)**
-5. **DynamoDB (base de datos multi-tenant)**
-6. **Módulo de AI/NLP (opcional)**
-7. **CDN para distribución del widget**
+La arquitectura está diseñada para ser:
+**serverless, escalable, multi-tenant, de bajo costo, segura y simple de operar.**
 
 ---
 
-## 🔧 1. Widget Web (JavaScript)
+## 🏗️ 1. Descripción General
 
-Se integra en cualquier sitio web usando:
+La plataforma está compuesta por tres subsistemas principales:
 
-```html
-<script
-  src="https://cdn.tu-saas.com/chat-widget.js"
-  data-tenant-id="TENANT_ID"
-  data-public-key="PUBLIC_KEY"
-></script>
+1. **Widget Público (Cliente Final)**  
+   - Integrado mediante un `<script>`
+   - Renderizado en React (bundle UMD/IIFE)
+   - Comunicación via GraphQL
+
+2. **Backend Multi-Tenant (AppSync + Lambda + DynamoDB)**  
+   - Aislado por `tenantId`
+   - Costo extremadamente bajo
+   - Totalmente serverless
+
+3. **Panel Administrativo (Backend + UI)**  
+   - Para gestionar servicios, profesionales, horarios, reservas, branding y API keys
+
+---
+
+## 🔍 2. Diagrama Conceptual
+
 ```
-
-**Funciones del widget:**
-
-- Renderiza interfaz del chat (React + MUI).
-- Envía mensajes al backend mediante GraphQL.
-- Envía el `tenantId` y la API Key en cada request.
-- Puede recibir eventos vía Subscription (AppSync).
-- Permite personalización visual y de comportamiento.
-
----
-
-## 🧰 2. Panel Administrativo
-
-Aplicación web (React + MUI) donde los tenants pueden:
-
-- Crear y editar servicios.
-- Administrar profesionales.
-- Definir disponibilidad.
-- Generar API keys.
-- Configurar branding del widget.
-- Ver reservas.
-- Ver estadísticas de uso.
-
-**Autenticación**: Cognito User Pools.  
-El JWT del usuario incluye `tenantId` como claim.
-
----
-
-## 🔌 3. AppSync GraphQL API
-
-**Funciones principales:**
-- Exponer API multi-tenant.
-- Resolver mutations:
-  - `sendChatMessage`
-  - `createBooking`
-  - `cancelBooking`
-- Resolver queries:
-  - `searchServices`
-  - `listProvidersByService`
-  - `getAvailableSlots`
-  - `getBookingsByUser`
-- Manejar subscriptions para chat en tiempo real.
-
-**Autenticación:**  
-Soporta 2 mecanismos:
-
-| Uso | Método | Descripción |
-|-----|--------|-------------|
-| Widget público | API Key | Mapea una key al tenant |
-| Panel Admin | Cognito | Usuarios admin con JWT que contiene `tenantId` |
-
----
-
-## 🐍 4. Lambdas Python
-
-Cada Lambda corresponde a un dominio funcional:
-
-| Lambda | Rol |
-|--------|-----|
-| `chat_agent` | FSM conversacional, orquestación |
-| `catalog` | Servicios, profesionales |
-| `availability` | Cálculo de slots |
-| `booking` | Reserva transaccional, condición atómica |
-
-Todas reciben inmediatamente:
-
-- `tenantId`
-- `userContext`
-- Información del mensaje
-
-Consultan DynamoDB usando claves segmentadas por tenant.
-
-**Python modules recomendados:**
-```
-/lambda/chat_agent
-  handler.py
-  fsm.py
-  states.py
-  nlp.py (opcional)
-/lambda/booking
-  handler.py
-  create.py
-  cancel.py
+ ┌───────────────────────────┐
+ │   Cliente / Widget Web    │
+ └─────────────┬─────────────┘
+               │ GraphQL
+               ▼
+    ┌───────────────────────────┐
+    │ AWS AppSync (GraphQL API) │
+    └─────────────┬─────────────┘
+                  │ VTL/Lambda resolvers
+                  ▼
+    ┌───────────────────────────┐
+    │   AWS Lambda (Python)     │
+    └───────┬──────────┬────────┘
+            │          │
+            ▼          ▼
+┌────────────────┐ ┌──────────────────┐
+│ DynamoDB Core  │ │  Bedrock (IA)    │
+└────────────────┘ └──────────────────┘
+  Multi-Tenant DB       Opcional
 ```
 
 ---
 
-## 🗄️ 5. DynamoDB (Multi-Tenant)
+## 🌍 3. Multi-Tenant dentro de DynamoDB
 
-Cada tabla contiene `tenantId` en su PK o SK.  
-Los tenants se aíslan mediante claves compuestas del tipo:
+El aislamiento entre tenants se logra usando `tenantId` como parte de la clave primaria.
 
-```
-PK = tenantId
-PK = tenantId#providerId
-PK = tenantId#serviceId
-```
-
-**Tablas:**
-
-- `Tenants`
-- `TenantApiKeys`
-- `Services`
-- `Providers`
-- `ProviderAvailability`
-- `Bookings`
-- `ConversationState`
-
-Detalles completos en `/architecture/dynamodb-schema.md`.
-
----
-
-## 🧠 6. AI / NLP (Opcional)
-
-Se usa para:
-
-- Clasificar intención.
-- Encontrar servicio probable.
-- Mejorar naturalidad del agente.
-
-**Opciones:**
-
-- Amazon Bedrock (Claude, Titan, Llama)
-- OpenAI API
-- Modelo local embebido para costos bajos.
-
-La Lambda `chat_agent` puede llamar a `nlp.py`.
-
----
-
-## 🌐 7. CDN para Widget
-
-El script embebible se publica en:
-
-**CloudFront**  
-→ Hosting del bundle JS del widget (React build minificado).
-
-El widget obtiene actualizaciones automáticamente por versión:
+Ejemplo (tabla Services):
 
 ```
-https://cdn.tu-saas.com/chat-widget/VERSION/chat-widget.js
+PK = TENANT#<tenantId>
+SK = SERVICE#<serviceId>
 ```
 
+Esto permite:
+
+- aislar datos por tenant  
+- alta escalabilidad  
+- bajo costo  
+- queries eficientes  
+- soporte natural para entornos con miles de tenants  
+
+Documentación completa:  
+📄 `/docs/architecture/multi-tenant.md`
+
 ---
 
-## 🔄 Flujo Principal de Arquitectura
+## 🧠 4. Arquitectura del Agente
 
-```mermaid
-flowchart LR
-    U[Usuario Final] -->|Interacción| W(Widget JS)
-    W -->|GraphQL + API Key| A[AppSync]
-    A -->|Auth + Resolve tenantId| L[Lambdas Python]
-    
-    subgraph Lambdas
-        L --> CA[chat_agent]
-        L --> AV[availability]
-        L --> BK[booking]
-        L --> CT[catalog]
-    end
-    
-    Lambdas --> D[(DynamoDB Multi-Tenant)]
-    Lambdas -.->|Opcional| AI[Bedrock/OpenAI]
-    
-    Admin[Panel Admin] -->|Cognito JWT| A
-    
-    subgraph DynamoDB
-        D --> T[Tenants]
-        D --> S[Services]
-        D --> P[Providers]
-        D --> B[Bookings]
-    end
+El agente opera en dos modos:
+
+---
+
+### 4.1 Modo 1 — Agente Determinístico (FSM)
+
+**Características:**
+- No usa IA
+- Costo ~0
+- Conversación guiada por estados
+- Ideal para plan FREE/PRO
+
+**FSM:**
+
+```
+INIT
+  → SERVICE_PENDING
+  → SERVICE_SELECTED
+  → PROVIDER_PENDING
+  → PROVIDER_SELECTED
+  → SLOT_PENDING
+  → CONFIRM_PENDING
+  → BOOKING_CONFIRMED
 ```
 
----
-
-## 🔒 Seguridad en la Arquitectura
-
-- Las API Keys se almacenan hashed.
-- Solo se permiten dominios registrados (`AllowedOrigins`).
-- Todas las operaciones están scopeadas por `tenantId`.
-- Rate limiting por tenant y por API key.
-- Acceso admin mediante Cognito → JWT incluye `tenantId`.
+La FSM se implementa en Lambda y mantiene estado en `Conversations`.
 
 ---
 
-## 📈 Escalabilidad
+### 4.2 Modo 2 — Agente con IA (Bedrock Agent Core)
 
-- **Serverless** (Lambdas escalan automáticamente).
-- **AppSync** maneja miles de conexiones simultáneas.
-- **DynamoDB** es ideal para multi-tenant de baja latencia.
-- **CDN** entrega el widget globalmente.
+Opcional y configurable por tenant.
+
+**Beneficios:**
+- Interpretación de intención
+- Extracción de entidades
+- Tono natural
+- Orquestación automática de tools:
+  - catalog lookup
+  - availability lookup
+  - booking creation
+
+**Recomendación de modelos:**
+
+- **Claude Haiku** → para clasificación y pasos simples  
+- **Claude Sonnet** → para generación natural  
+- **Titan Embeddings** → para knowledge base  
+- **Bedrock Agent Core** → para contexto y orquestación con menor costo
+
+**Ventajas:**
+- Menos tokens de entrada
+- Menos invocaciones al LLM
+- Persistencia del estado sin reenviar todo el historial
+- Gran reducción de costos
 
 ---
 
-## 📦 Entregables de esta arquitectura
+## 🔧 5. Backend: AppSync + Lambda
 
-- Widget listo para integrar.
-- API GraphQL multi-tenant.
-- Panel administrativo operativo.
-- Flujos conversacionales en Python.
-- Reservas seguras y consistentes.
-- Configuración flexible por tenant.
+### AppSync (GraphQL)
+Funciona como **gateway unificado**:
+
+- Resuelve queries del widget (públicas usando API Key)
+- Resuelve operaciones del admin (privadas usando JWT)
+- Ejecuta resolvers VTL o Lambda
+- Incluye validación del tenant mediante API key
+
+### Lambdas por dominio
+- `/catalog` → servicios y proveedores  
+- `/availability` → horarios  
+- `/booking` → creación y gestión de reservas  
+- `/chat_agent` → FSM y/o invocación a IA  
+
+**Recomendación:**
+- Módulos pequeños, especializados, idempotentes
 
 ---
 
-## 📍 Documentos relacionados
+## 🗄️ 6. Base de Datos (DynamoDB)
 
-- `/architecture/multi-tenant.md`
-- `/architecture/dynamodb-schema.md`
-- `/architecture/appsync-schema.md`
-- `/widget/README.md`
-- `/security/README.md`
+**Tablas principales:**
+
+- **Services**  
+- **Providers**  
+- **ProviderAvailability**  
+- **Bookings**  
+- **Conversations**  
+- **TenantApiKeys**  
+- **Tenants**  
+- **TenantUsage**
+
+**Claves multi-tenant:**
+- PK = `TENANT#xxx`  
+- SK = entidad  
+- GSI según patrón de lectura
+
+Documentación detallada:  
+📄 `/docs/architecture/dynamodb-schema.md`
+
+---
+
+## 🎨 7. Widget Público
+
+- Publicado en CloudFront (global)  
+- Bundle UMD/IIFE  
+- Expuesto como `window.ChatAgentWidget`  
+- Configurable vía atributos `data-*`  
+- Reporta eventos como:
+  - `message:sent`
+  - `slot:selected`
+  - `booking:created`
+- Permite personalización:
+  - tema
+  - idioma
+  - mensaje de bienvenida
+  - posición del botón
+
+Detalles:  
+📄 `/docs/widget/README.md`
+
+---
+
+## 🔒 8. Seguridad Arquitectónica
+
+### API Keys (widget)
+- almacenamiento hash  
+- allowedOrigins obligatorio  
+- rotación soportada  
+- rate limiting por key/tenant
+
+### JWT (admin)
+- roles: owner/admin/viewer  
+- claims del tenant  
+- acceso estricto por GraphQL
+
+### Aislamiento multi-tenant
+- PK con `tenantId`  
+- Lambdas verifican tenant por contexto  
+- AppSync valida API key → tenantId
+
+### Infraestructura
+- CloudFormation + OIDC  
+- IAM mínimo por Lambda  
+- Logs anonimizados  
+- TTL para datos sensibles (opcional)
+
+Documentación completa:  
+📄 `/docs/security/README.md`
+
+---
+
+## 📈 9. Escalabilidad y Límites Recomendados
+
+### Límites sugeridos por tenant
+- Servicios: 100  
+- Profesionales: 50  
+- Reservas por día: 10.000  
+- Conversaciones activas: 5.000  
+
+### Límites del sistema completo
+- Scalamiento horizontal automático  
+- DynamoDB soporta miles de tenants sin ajuste  
+- Lambda escala automáticamente  
+- AppSync soporta millones de requests/día  
+
+### Multi-región (opcional)
+- replicación cross-region para empresas con SLO altos  
+- widget resiliente mediante CloudFront  
+
+---
+
+## 💵 10. Costos de arquitectura (resumen)
+
+| Configuración | Costo mensual estimado |
+|---------------|-------------------------|
+| Sin IA | **USD 15–20** |
+| IA con Haiku asistido | **USD 50–150** |
+| IA conversacional completa | **USD 200–600** |
+
+Más detalles:  
+📄 `/docs/architecture/cost-estimation.md`
+
+---
+
+## 🔄 11. Trazabilidad del flujo
+
+### Widget → AppSync → Lambda → DynamoDB → (opcional IA)
+
+**Ejemplo de creación de reserva:**
+
+1. El usuario selecciona servicio  
+2. AppSync → Lambda `/availability`  
+3. Lambda consulta disponibilidad en DynamoDB  
+4. El agente confirma  
+5. AppSync → Lambda `/booking`  
+6. Se crea la reserva  
+7. DynamoDB actualiza estado  
+8. AppSync responde al widget  
+9. El widget dispara `booking:created`
+
+---
+
+## 🧭 12. Roadmap Arquitectónico
+
+- Integración completa de Bedrock Agent Core  
+- Soporte para Google/Microsoft Calendar  
+- API REST pública  
+- Multi-branch por tenant  
+- Canal WhatsApp/SMS opcional  
+- Cache distribuido (DAX/ElastiCache) para tenants grandes
+
+---
+
+## 📚 Documentos relacionados
+
+- `/docs/architecture/dynamodb-schema.md`  
+- `/docs/architecture/appsync-schema.md`  
+- `/docs/architecture/multi-tenant.md`  
+- `/docs/security/README.md`  
+- `/docs/widget/README.md`  
+- `/docs/admin/README.md`
