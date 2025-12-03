@@ -1,448 +1,416 @@
-# Esquema DynamoDB — Multi-Tenant SaaS Agentic Booking Chat
+# DynamoDB — Esquema Multi-Tenant
+SaaS Agentic Booking Chat
 
-Este documento define **todas las tablas de DynamoDB**, sus claves primarias, GSIs, ejemplos de items y convenciones para implementar el backend multi-tenant del SaaS.
+Este documento define el diseño de las tablas DynamoDB utilizadas por la plataforma, incluyendo:
 
-Está diseñado para ser **machine-friendly**, permitiendo a herramientas como Codex generar los modelos, IaC y validaciones automáticamente.
-
----
-
-## 🧩 Principios de diseño DynamoDB
-
-1. **Cada tabla está segmentada por tenant**, usando `tenantId` en la clave primaria.
-2. **Se evita el acceso cross-tenant** mediante claves que requieren `tenantId`.
-3. **Las claves de rango permiten queries eficientes** por servicios, proveedores o reservas.
-4. **Las tablas están optimizadas para serverless** (accesos simples y consistentes).
-5. **No se usa modelo single-table**, ya que separar dominios mejora claridad y mantenimiento.
+- estructura multi-tenant (PK/SK),
+- GSIs,
+- patrones de acceso,
+- ejemplos de ítems,
+- recomendaciones de capacidad y TTL.
 
 ---
 
-## 📚 Listado de tablas
+# 🧠 1. Principios de diseño
 
-1. `Tenants`
-2. `TenantApiKeys`
-3. `Services`
-4. `Providers`
-5. `ProviderAvailability`
-6. `Bookings`
-7. `ConversationState`
+1. **Multi-tenant por clave**  
+   Cada ítem incluye `tenantId` y se almacena con un PK que comienza con `TENANT#<tenantId>`.
 
-Cada tabla se define con:
+2. **Tablas por dominio**  
+   Separamos dominios lógicos: servicios, profesionales, disponibilidad, reservas, conversaciones, tenants, API keys, uso.
 
-- Clave primaria (PK/SK)
-- GSIs
-- Ejemplo de Item
-- Reglas de acceso
-- Patrones de query
+3. **Accesos típicos primero**  
+   El diseño parte de las queries principales:
+   - listar servicios por tenant
+   - listar profesionales por tenant
+   - obtener disponibilidad por profesional
+   - buscar reservas por fecha / profesional
+   - lookup de API key
+   - lookup de settings del tenant
+
+4. **On-Demand billing**  
+   Se recomienda `PAY_PER_REQUEST` (on-demand) para elasticidad y simplicidad.
 
 ---
 
-## 🟦 1. Tabla: `Tenants`
+# 📚 2. Vista general de tablas
 
-Contiene la información maestra de cada empresa.
+| Tabla | Propósito |
+|--------|-----------|
+| `Services` | Catálogo de servicios por tenant |
+| `Providers` | Profesionales por tenant |
+| `ProviderAvailability` | Horarios recurrentes y reglas por profesional |
+| `BookingExceptions` | Días u horas bloqueadas |
+| `Bookings` | Reservas confirmadas |
+| `Conversations` | Estado del chat por conversación |
+| `Tenants` | Configuración y plan de cada tenant |
+| `TenantApiKeys` | API keys públicas para el widget |
+| `TenantUsage` | Métricas mensuales por tenant |
 
-### **Clave primaria**
-```
-PK = tenantId
-```
+---
 
-### **Campos**
-| Campo | Tipo | Descripción |
-|-------|------|--------------|
-| tenantId | STRING | ID único del tenant |
-| name | STRING | Nombre comercial |
-| slug | STRING | Nombre breve para URLs |
-| status | STRING | ACTIVE, SUSPENDED, TRIAL, CANCELLED |
-| plan | STRING | FREE, PRO, ENTERPRISE |
-| settings | MAP | Configuraciones del tenant |
-| createdAt | STRING ISO | Fecha creación |
-| ownerUserId | STRING | Usuario creador |
-| billingEmail | STRING | Email contacto |
+# 🧾 3. Tabla: `Services`
 
-### **GSI1 — por dueño**
-```
-GSI1PK = ownerUserId
-GSI1SK = createdAt
-```
+Catálogo de servicios ofrecidos por cada tenant.
 
-### **Ejemplo de Item**
+## 3.1 Esquema
+
+- **PK**: `TENANT#<tenantId>`
+- **SK**: `SERVICE#<serviceId>`
+- **GSI1** (por nombre de servicio):
+  - `GSI1PK`: `TENANT#<tenantId>`
+  - `GSI1SK`: `NAME#<normalizedName>`
+
+## 3.2 Atributos
+
 ```json
 {
-  "tenantId": "andina",
-  "name": "Coca-Cola Andina",
-  "slug": "andina",
-  "status": "ACTIVE",
-  "plan": "PRO",
-  "createdAt": "2025-01-01T00:00:00Z",
-  "ownerUserId": "user_123",
-  "billingEmail": "billing@andina.com",
-  "settings": {
-    "language": "es-CL",
-    "defaultTimezone": "America/Santiago",
-    "widget": {
-      "primaryColor": "#f44336",
-      "position": "bottom-right"
-    }
-  }
+  "PK": "TENANT#DERMASKIN",
+  "SK": "SERVICE#svc_123",
+  "tenantId": "DERMASKIN",
+  "serviceId": "svc_123",
+  "name": "Limpieza Facial",
+  "description": "Limpieza profunda de rostro",
+  "category": "Dermatología",
+  "durationMinutes": 60,
+  "price": 35000,
+  "active": true,
+  "createdAt": "2025-01-01T10:00:00Z",
+  "updatedAt": "2025-01-02T12:00:00Z"
 }
 ```
 
+## 3.3 Patrones de acceso
+
+- **Listar servicios** → Query por `PK = TENANT#...` + `begins_with(SK, "SERVICE#")`
+- **Buscar servicio por nombre** → Query en GSI1 por `TENANT#` + `NAME#<normalized>` (útil en IA)
+
 ---
 
-## 🟩 2. Tabla: `TenantApiKeys`
+# 👩‍⚕️ 4. Tabla: `Providers`
 
-Asigna claves públicas a un tenant. Permite resolver `tenantId` a partir de una API Key enviada por el widget.
+Profesionales del tenant.
 
-### **Clave primaria**
-```
-PK = tenantId
-SK = apiKeyId
-```
+## 4.1 Esquema
 
-### **GSI1 — búsqueda rápida por hash**
-```
-GSI1PK = apiKeyHash
-GSI1SK = tenantId
-```
+- **PK**: `TENANT#<tenantId>`
+- **SK**: `PROVIDER#<providerId>`
+- **GSI1** (por servicio):
+  - `GSI1PK`: `TENANT#<tenantId>#SERVICE#<serviceId>`
+  - `GSI1SK`: `PROVIDER#<providerId>`
 
-### **Campos**
-| Campo | Descripción |
-|-------|-------------|
-| apiKeyPublic | parte visible de la key |
-| apiKeyHash | hash irreversible (SHA256/HMAC) |
-| status | ACTIVE, REVOKED |
-| allowedOrigins | Lista de dominios permitidos |
-| createdAt | Fecha emisión |
-| lastUsedAt | Última vez utilizada |
-| rateLimit | Límite por minuto |
+## 4.2 Atributos
 
-### **Ejemplo de Item**
 ```json
 {
-  "tenantId": "andina",
-  "apiKeyId": "key_001",
-  "apiKeyHash": "sha256_hash_here",
-  "status": "ACTIVE",
-  "allowedOrigins": ["https://www.andina.cl"],
-  "rateLimit": 100,
+  "PK": "TENANT#DERMASKIN",
+  "SK": "PROVIDER#pro_456",
+  "tenantId": "DERMASKIN",
+  "providerId": "pro_456",
+  "name": "Dra. Martínez",
+  "bio": "Dermatóloga con 10 años de experiencia",
+  "serviceIds": ["svc_123", "svc_456"],
+  "timezone": "America/Santiago",
+  "active": true,
+  "createdAt": "2025-01-01T10:00:00Z",
+  "updatedAt": "2025-01-02T12:00:00Z",
+  "GSI1PK": "TENANT#DERMASKIN#SERVICE#svc_123",
+  "GSI1SK": "PROVIDER#pro_456"
+}
+```
+
+## 4.3 Patrones de acceso
+
+- **Listar providers por tenant** → Query `PK = TENANT#...` AND `begins_with(SK, "PROVIDER#")`
+- **Listar providers por servicio** → Query en GSI1 por `TENANT#...#SERVICE#<id>`
+
+---
+
+# 🗓 5. Tabla: `ProviderAvailability`
+
+Define reglas recurrentes de disponibilidad por profesional.
+
+## 5.1 Esquema
+
+- **PK**: `TENANT#<tenantId>#PROVIDER#<providerId>`
+- **SK**: `RULE#<ruleId>`
+
+Cada regla describe la disponibilidad semanal.
+
+## 5.2 Atributos
+
+```json
+{
+  "PK": "TENANT#DERMASKIN#PROVIDER#pro_456",
+  "SK": "RULE#1",
+  "tenantId": "DERMASKIN",
+  "providerId": "pro_456",
+  "ruleId": "1",
+  "dayOfWeek": "MON",
+  "timeRanges": [
+    {"start": "09:00", "end": "13:00"},
+    {"start": "15:00", "end": "18:00"}
+  ],
+  "createdAt": "2025-01-01T10:00:00Z",
+  "updatedAt": "2025-01-02T12:00:00Z"
+}
+```
+
+## 5.3 Patrones de acceso
+
+- **Obtener disponibilidad base de un provider** → Query por `PK = TENANT#...#PROVIDER#<id>`
+
+---
+
+# 🚫 6. Tabla: `BookingExceptions`
+
+Bloqueos o excepciones a la disponibilidad estándar.
+
+## 6.1 Esquema
+
+- **PK**: `TENANT#<tenantId>#PROVIDER#<providerId>`
+- **SK**: `EXCEPTION#<date>#<sequence>`
+
+## 6.2 Atributos
+
+```json
+{
+  "PK": "TENANT#DERMASKIN#PROVIDER#pro_456",
+  "SK": "EXCEPTION#2025-01-10#1",
+  "tenantId": "DERMASKIN",
+  "providerId": "pro_456",
+  "date": "2025-01-10",
+  "reason": "Vacaciones",
+  "allDay": true,
+  "timeRanges": [],
   "createdAt": "2025-01-01T10:00:00Z"
 }
 ```
 
+## 6.3 Patrones de acceso
+
+- **Excepciones por provider** → Query `PK = TENANT#...#PROVIDER#<id>` AND `begins_with(SK, "EXCEPTION#")`
+- **Excepciones por día** → se puede modelar un GSI si se requiere alta frecuencia.
+
 ---
 
-## 🟨 3. Tabla: `Services`
+# 📅 7. Tabla: `Bookings`
 
-Catálogo de servicios de cada tenant.
+Reservas confirmadas.
 
-### **Clave primaria**
-```
-PK = tenantId
-SK = serviceId
-```
+## 7.1 Esquema
 
-### **Campos**
-| Campo | Tipo |
-|-------|------|
-| name | STRING |
-| description | STRING |
-| durationMinutes | NUMBER |
-| price | NUMBER |
-| category | STRING |
-| active | BOOLEAN |
+Acceso principal: reservas por tenant, por provider y por fecha.
 
-### **GSI opcional — por categoría**
-```
-GSI1PK = tenantId#category
-GSI1SK = name
-```
+- **PK**: `TENANT#<tenantId>#PROVIDER#<providerId>`
+- **SK**: `BOOKING#<date>#<time>#<bookingId>`
+- **GSI1** — por tenant + fecha
+  - `GSI1PK`: `TENANT#<tenantId>#DATE#<YYYY-MM-DD>`
+  - `GSI1SK`: `BOOKING#<time>#<bookingId>`
 
-### **Ejemplo de Item**
+## 7.2 Atributos
+
 ```json
 {
-  "tenantId": "andina",
+  "PK": "TENANT#DERMASKIN#PROVIDER#pro_456",
+  "SK": "BOOKING#2025-01-10#15:30#bkg_789",
+  "tenantId": "DERMASKIN",
+  "bookingId": "bkg_789",
   "serviceId": "svc_123",
-  "name": "Masaje descontracturante",
-  "description": "Masaje de 60 minutos",
-  "durationMinutes": 60,
-  "price": 25000,
-  "category": "masajes",
-  "active": true
-}
-```
-
----
-
-## 🟧 4. Tabla: `Providers`
-
-Profesionales asociados a los servicios.
-
-### **Clave primaria**
-```
-PK = tenantId
-SK = providerId
-```
-
-### **Campos**
-| Campo | Tipo |
-|-------|------|
-| name | STRING |
-| bio | STRING |
-| services | LIST<STRING> |
-| timezone | STRING |
-| active | BOOLEAN |
-
-### **Ejemplo**
-```json
-{
-  "tenantId": "andina",
-  "providerId": "pro_55",
-  "name": "María González",
-  "bio": "Masajista profesional",
-  "services": ["svc_123", "svc_456"],
-  "timezone": "America/Santiago",
-  "active": true
-}
-```
-
----
-
-## 🟫 5. Tabla: `ProviderAvailability`
-
-Disponibilidad recurrente del proveedor.
-
-### **Clave primaria**
-```
-PK = tenantId#providerId
-SK = dayOfWeek   // ej: "MON", "TUE"
-```
-
-### **Campos**
-| Campo | Descripción |
-|-------|-------------|
-| timeRanges | Horarios disponibles por día |
-| breaks | Pausas |
-| exceptions | Días libres específicos |
-
-### **Ejemplo**
-```json
-{
-  "PK": "andina#pro_55",
-  "SK": "MON",
-  "timeRanges": [
-    {"startTime": "09:00", "endTime": "13:00"},
-    {"startTime": "15:00", "endTime": "19:00"}
-  ],
-  "breaks": [{"startTime": "11:00", "endTime": "11:15"}],
-  "exceptions": []
-}
-```
-
----
-
-## 🟥 6. Tabla: `Bookings`
-
-Registro de reservas confirmadas.
-
-### **Clave primaria**
-```
-PK = tenantId#providerId
-SK = startTime  // ISO string
-```
-
-Esto permite prevenir overbooking con una condición atómica:
-
-```python
-ConditionExpression: attribute_not_exists(PK)
-```
-
-### **Campos**
-| Campo | Detalle |
-|-------|---------|
-| bookingId | ID único |
-| serviceId | STRING |
-| customerId | STRING |
-| endTime | STRING ISO |
-| status | PENDING, CONFIRMED, CANCELLED |
-| paymentStatus | NONE, PENDING, PAID |
-| createdAt | STRING ISO |
-
-### **GSI — por usuario**
-```
-GSI1PK = tenantId#customerId
-GSI1SK = startTime
-```
-
-### **Ejemplo**
-```json
-{
-  "PK": "andina#pro_55",
-  "SK": "2025-12-01T17:30:00Z",
-  "bookingId": "book_789",
-  "tenantId": "andina",
-  "providerId": "pro_55",
-  "serviceId": "svc_123",
-  "customerId": "cust_001",
-  "endTime": "2025-12-01T18:30:00Z",
+  "providerId": "pro_456",
+  "customerName": "Juan Pérez",
+  "customerEmail": "juan@example.com",
+  "datetime": "2025-01-10T18:30:00Z",
   "status": "CONFIRMED",
-  "paymentStatus": "PAID",
-  "createdAt": "2025-12-01T10:00:00Z"
+  "createdAt": "2025-01-01T10:00:00Z",
+  "updatedAt": "2025-01-01T10:00:00Z",
+  "GSI1PK": "TENANT#DERMASKIN#DATE#2025-01-10",
+  "GSI1SK": "BOOKING#15:30#bkg_789"
 }
 ```
 
+## 7.3 Patrones de acceso
+
+- **Listar reservas de un provider por día**
+  → Query en tabla principal por `PK = TENANT#...#PROVIDER#` + `begins_with(SK, "BOOKING#<fecha>")`
+
+- **Listar todas las reservas de un tenant por día**
+  → Query GSI1 `GSI1PK = TENANT#...#DATE#<fecha>`
+
+- **Buscar reserva por bookingId**
+  → Lookup requiere GSI2, o se puede guardarlo en Conversations y en panel con bookmarks.
+
+Si se requiere acceso directo por bookingId, se puede agregar un GSI2 con `GSI2PK = BOOKING#<bookingId>`.
+
 ---
 
-## 🟪 7. Tabla: `ConversationState`
+# 💬 8. Tabla: `Conversations`
 
-Estado del agente conversacional por usuario.
+Almacena el estado del chat por conversationId.
 
-### **Clave primaria**
-```
-PK = tenantId
-SK = conversationId
-```
+## 8.1 Esquema
 
-### **Campos**
-| Campo | Detalle |
-|-------|---------|
-| state | INIT, SERVICE_PENDING… |
-| serviceId | si ya lo definió |
-| providerId | si ya lo definió |
-| slotStart / slotEnd | si ya seleccionó horario |
-| updatedAt | ISO |
-| userContext | MAP |
+- **PK**: `TENANT#<tenantId>`
+- **SK**: `CONV#<conversationId>`
+- **GSI1** — por fecha de última actividad (opcional)
+  - `GSI1PK`: `TENANT#<tenantId>#CONV`
+  - `GSI1SK`: `<lastMessageAt>`
 
-### **Ejemplo**
+## 8.2 Atributos
+
 ```json
 {
-  "PK": "andina",
-  "SK": "conv_abc123",
-  "state": "PROVIDER_SELECTED",
-  "serviceId": "svc_123",
-  "providerId": "pro_55",
-  "slotStart": null,
-  "slotEnd": null,
-  "updatedAt": "2025-12-01T15:30:00Z",
-  "userContext": {
-    "userId": "user_ext_001",
-    "name": "Juan Pérez"
-  }
+  "PK": "TENANT#DERMASKIN",
+  "SK": "CONV#conv_123",
+  "tenantId": "DERMASKIN",
+  "conversationId": "conv_123",
+  "state": "SERVICE_PENDING",
+  "serviceId": null,
+  "providerId": null,
+  "datetime": null,
+  "context": {
+    "language": "es",
+    "channel": "web"
+  },
+  "lastMessageAt": "2025-01-10T10:15:30Z",
+  "ttl": 1736534400
+}
+```
+
+`ttl` se usa para eliminar conversaciones expiradas.
+
+---
+
+# 🧱 9. Tabla: `Tenants`
+
+Información y configuración de cada tenant.
+
+## 9.1 Esquema
+
+- **PK**: `TENANT#<tenantId>`
+- **SK**: `META#TENANT`
+
+## 9.2 Atributos
+
+```json
+{
+  "PK": "TENANT#DERMASKIN",
+  "SK": "META#TENANT",
+  "tenantId": "DERMASKIN",
+  "name": "Clínica Dermaskin",
+  "country": "CL",
+  "timezone": "America/Santiago",
+  "plan": "PRO",
+  "billingEmail": "admin@dermaskin.cl",
+  "status": "ACTIVE",
+  "settings": {
+    "widget": { "primaryColor": "#4A90E2", "language": "es" },
+    "ai": { "mode": "FSM" }
+  },
+  "createdAt": "2025-01-01T10:00:00Z",
+  "updatedAt": "2025-01-02T12:00:00Z"
 }
 ```
 
 ---
 
-## 📐 Patrones de acceso por tabla
+# 🔑 10. Tabla: `TenantApiKeys`
 
-### **Tenants**
-- `GetItem(tenantId)` — Leer info del tenant
-- `Query(GSI1PK=ownerUserId)` — Listar tenants de un usuario
+API keys para el widget.
 
-### **TenantApiKeys**
-- `Query(GSI1PK=apiKeyHash)` — Resolver API Key → tenant
-- `Query(PK=tenantId)` — Listar keys de un tenant
+## 10.1 Esquema
 
-### **Services**
-- `Query(PK=tenantId)` — Listar servicios del tenant
-- `GetItem(tenantId, serviceId)` — Obtener servicio específico
+Acceso frecuente: por key.
 
-### **Providers**
-- `Query(PK=tenantId)` — Listar profesionales del tenant
-- Filtrar por `services` contiene `serviceId` (post-query)
+- **PK**: `TENANT#<tenantId>`
+- **SK**: `APIKEY#<apiKeyId>`
+- **GSI1** — lookup por key hash
+  - `GSI1PK`: `APIKEY#<publicKeyPrefix>` (ej: primeros N caracteres)
+  - `GSI1SK`: `<apiKeyId>`
 
-### **ProviderAvailability**
-- `Query(PK=tenantId#providerId)` — Disponibilidad semanal
+O bien:
+- `GSI1PK`: `TENANT#<tenantId>`
+- `GSI1SK`: `PUBLICKEY#<publicKey>`
 
-### **Bookings**
-- `Query(PK=tenantId#providerId, SK between dates)` — Reservas del profesional
-- `Query(GSI1PK=tenantId#customerId)` — Reservas del cliente
-- `PutItem with ConditionExpression` — Crear reserva sin overbooking
+(Si se quiere lookup directo, aunque es menos seguro; normalmente se usa hash parcial).
 
-### **ConversationState**
-- `GetItem(tenantId, conversationId)` — Estado de conversación
-- `UpdateItem` — Actualizar estado del FSM
+## 10.2 Atributos
 
----
-
-## 🛠️ Implementación con IaC
-
-### CloudFormation (ejemplo para Tenants)
-
-```yaml
-TenantsTable:
-  Type: AWS::DynamoDB::Table
-  Properties:
-    TableName: Tenants
-    BillingMode: PAY_PER_REQUEST
-    AttributeDefinitions:
-      - AttributeName: tenantId
-        AttributeType: S
-      - AttributeName: ownerUserId
-        AttributeType: S
-      - AttributeName: createdAt
-        AttributeType: S
-    KeySchema:
-      - AttributeName: tenantId
-        KeyType: HASH
-    GlobalSecondaryIndexes:
-      - IndexName: GSI1
-        KeySchema:
-          - AttributeName: ownerUserId
-            KeyType: HASH
-          - AttributeName: createdAt
-            KeyType: RANGE
-        Projection:
-          ProjectionType: ALL
-```
-
-### CDK (TypeScript ejemplo)
-
-```typescript
-const tenantsTable = new dynamodb.Table(this, 'Tenants', {
-  partitionKey: { name: 'tenantId', type: dynamodb.AttributeType.STRING },
-  billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-});
-
-tenantsTable.addGlobalSecondaryIndex({
-  indexName: 'GSI1',
-  partitionKey: { name: 'ownerUserId', type: dynamodb.AttributeType.STRING },
-  sortKey: { name: 'createdAt', type: dynamodb.AttributeType.STRING },
-});
+```json
+{
+  "PK": "TENANT#DERMASKIN",
+  "SK": "APIKEY#key_001",
+  "tenantId": "DERMASKIN",
+  "apiKeyId": "key_001",
+  "publicKey": "pk_live_derma_01",
+  "apiKeyHash": "<bcrypt-hash>",
+  "status": "ACTIVE",
+  "allowedOrigins": ["https://dermaskin.cl"],
+  "createdAt": "2025-01-01T10:00:00Z",
+  "lastUsedAt": "2025-01-10T10:30:00Z",
+  "GSI1PK": "APIKEY#pk_live_derma_01",
+  "GSI1SK": "key_001"
+}
 ```
 
 ---
 
-## 🔐 Seguridad
+# 📈 11. Tabla: `TenantUsage`
 
-1. **IAM Policies** — Lambdas tienen acceso solo a las tablas necesarias.
-2. **Condition Expressions** — Prevención de overbooking en `Bookings`.
-3. **TTL opcional** — Para limpiar conversaciones antiguas.
-4. **Encryption at Rest** — Habilitar en todas las tablas.
-5. **Point-in-Time Recovery** — Para producción.
+Métricas por tenant y período.
+
+## 11.1 Esquema
+
+- **PK**: `TENANT#<tenantId>`
+- **SK**: `USAGE#<YYYY-MM>`
+
+## 11.2 Atributos
+
+```json
+{
+  "PK": "TENANT#DERMASKIN",
+  "SK": "USAGE#2025-01",
+  "tenantId": "DERMASKIN",
+  "period": "2025-01",
+  "messages": 12345,
+  "bookings": 200,
+  "tokensIA": 500000,
+  "errors": 15,
+  "plan": "PRO",
+  "updatedAt": "2025-01-31T23:59:59Z"
+}
+```
 
 ---
 
-## 📊 Métricas y Observabilidad
+# ⚙️ 12. Configuración recomendada de tablas
 
-Cada operación debe loggear:
-
-- `tenantId`
-- `apiKeyId` (si aplica)
-- Operación (query/put/update)
-- Latencia
-- Errores
-
-Esto permite:
-
-- Facturación por tenant
-- Detección de abuso
-- Optimización de queries
-- Auditoría completa
+- **Billing mode**: `PAY_PER_REQUEST` (on-demand)
+- **PITR** (Point-in-time recovery): habilitado para:
+  - Bookings
+  - Tenants
+  - TenantApiKeys
+- **TTL**:
+  - Conversations: 1–7 días
+  - Logs internos (si se usan): 7–30 días
 
 ---
 
-## 📚 Documentos relacionados
+# 🧪 13. Testing del esquema
 
-- `/architecture/multi-tenant.md`
-- `/architecture/appsync-schema.md`
-- `/architecture/lambdas.md`
-- `/security/README.md`
+Pruebas recomendadas:
+
+**Crear tenant y correr flujo completo:**
+- alta de servicios
+- alta de providers
+- seteo de disponibilidad
+- creación de reserva
+- recuperación de datos por distintas keys
+
+**Test de aislamiento:**
+- simular dos tenants e intentar acceder cruzado
+- verificar que queries siempre incluyen tenantId correcto
+
+---
+
+# ✔️ Fin del archivo
