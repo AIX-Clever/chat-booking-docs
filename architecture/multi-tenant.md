@@ -1,297 +1,302 @@
-# Arquitectura Multi-Tenant para el SaaS Agentic Booking Chat
+# Multi-Tenant Architecture — SaaS Agentic Booking Chat
 
-Este documento describe en profundidad el **modelo multi-tenant** que permite que múltiples empresas (tenants) utilicen la plataforma sin compartir datos entre sí, manteniendo seguridad, escalabilidad y configuraciones independientes.
-
----
-
-## 🧩 Objetivo del diseño multi-tenant
-
-La plataforma debe permitir que:
-
-- Muchas empresas usen el chat agéntico en **sus propios sitios web**.
-- Cada una administre su catálogo de servicios, profesionales y reservas.
-- Cada empresa tenga sus **propias API Keys**, branding y configuraciones.
-- Los datos estén completamente aislados por `tenantId`.
-- El sistema escale horizontalmente de forma eficiente.
+Este documento explica cómo la plataforma implementa el modelo multi-tenant para permitir que miles de empresas utilicen el servicio en una sola infraestructura, con aislamiento fuerte, seguridad garantizada y costos extremadamente bajos.
 
 ---
 
-## 🏛️ Enfoque multi-tenant adoptado
+# 🎯 1. ¿Qué significa "multi-tenant" en este proyecto?
 
-Se utiliza una estrategia **multi-tenant lógico**, basada en:
+- **Un único backend** sirve a **múltiples empresas** (tenants).  
+- Cada tenant posee:
+  - claves propias,
+  - configuraciones propias,
+  - branding propio,
+  - usuarios propios,
+  - servicios, profesionales y horarios aislados,
+  - modo IA configurable,
+  - límites según plan,
+  - estadísticas independientes.
 
-- **Una base de datos compartida** (DynamoDB).
-- **Tablas particionadas por `tenantId`**.
-- **Autenticación por API Key** para widgets públicos.
-- **Autenticación Cognito** para el panel admin.
-- **AppSync resolviendo `tenantId`** en cada request.
-
-Este enfoque provee:
-
-- Bajo costo operativo.
-- Máxima escalabilidad.
-- Seguridad basada en aislamiento lógico.
-- Simplicidad para agregar nuevos tenants.
+Ningún tenant puede acceder a los datos de otro.
 
 ---
 
-## 💡 ¿Qué es un Tenant?
+# 🧠 2. Aislamiento: la regla fundamental
 
-Un **tenant** es una empresa que usa el servicio.
+El aislamiento se implementa mediante 3 capas:
 
-Cada tenant tiene:
+1. **Identificación del tenant → API Key o JWT**  
+2. **Aislamiento físico/lógico → DynamoDB con PK = TENANT#id**  
+3. **Validación en backend → resolvers que siempre verifican tenantId**  
 
-- Sus servicios.
-- Sus profesionales.
-- Su disponibilidad.
-- Sus reservas.
-- Sus conversaciones.
-- Sus usuarios administradores.
-- Sus configuraciones de widget.
-- Sus planes y límites.
-
-Todo identificado por un `tenantId` único.
-
----
-
-## 🔐 1. Identificación del tenant: `tenantId`
-
-Cada request al backend debe resolverse a un **tenantId**.
-
-Esto ocurre de dos formas:
-
-### 1.1. Para el widget público (sitio del cliente)
-
-El widget embebido en el sitio contiene una `publicKey`:
-
-```html
-<script
-  src="https://cdn.tu-saas.com/chat-widget.js"
-  data-tenant-id="andina"
-  data-public-key="pk_live_abc123"
-></script>
-```
-
-El backend:
-
-1. Recibe `x-api-key: pk_live_abc123`.
-2. Calcula su hash.
-3. Busca en `TenantApiKeys` → obtiene `tenantId`.
-4. Valida:
-   - Key activa.
-   - Origen permitido.
-   - Límite de uso.
-
-### 1.2. Para el panel admin (usuarios internos del tenant)
-
-- Login vía Cognito.
-- El JWT contiene un claim `tenantId`.
-- AppSync lo extrae de forma segura.
-
----
-
-## 🏗️ 2. Modelo de Datos Multi-Tenant en DynamoDB
-
-### Tablas clave:
-
-#### ✔ **Tenants**
-Información global de cada empresa.
+Ejemplo de acceso:
 
 ```
-PK: tenantId
-```
-
-#### ✔ **TenantApiKeys**
-```
-PK: tenantId
-SK: apiKeyId
-GSI1PK: apiKeyHash
-```
-
-Permite resolución rápida de una request → tenant.
-
-#### ✔ **Services**
-```
-PK = tenantId
-SK = serviceId
-```
-
-#### ✔ **Providers**
-```
-PK = tenantId
-SK = providerId
-```
-
-#### ✔ **ProviderAvailability**
-```
-PK = tenantId#providerId
-SK = dayOfWeek
-```
-
-#### ✔ **Bookings**
-```
-PK = tenantId#providerId
-SK = startTime
-```
-
-Los GSIs también incluyen `tenantId`.
-
-#### ✔ **ConversationState**
-```
-PK = tenantId
-SK = conversationId
+x-api-key → determina tenantId
+AppSync → pasa tenantId al resolver
+Lambda → restringe lecturas/escrituras a tenantId
+DynamoDB → PK = TENANT#xxx evita lecturas cruzadas
 ```
 
 ---
 
-## 🧪 3. Aislamiento y Seguridad
+# 🔑 3. Resolución del Tenant
 
-### ¿Cómo aseguramos que un tenant no acceda a datos de otro?
-
-1. **Todas las PK incluyen `tenantId`.**  
-   Es imposible hacer query sin especificarlo.
-
-2. **AppSync valida tenant antes de ejecutar el resolver.**
-
-3. **Cada request del widget está firmada por una API Key del tenant.**
-
-4. **Panel admin obtiene tenant desde JWT (Cognito).**
-
-5. **Todos los lambdas reciben explícitamente `tenantId` como parámetro.**
-
-6. **Rate limiting por tenant y por key.**
-
-7. **Allowed Origins por key.**
+Dependiendo del tipo de request:
 
 ---
 
-## 🔄 4. Flujo completo de una request multi-tenant
+## 3.1 Widget Público → API Key
 
-```mermaid
-sequenceDiagram
-    participant Widget
-    participant AppSync
-    participant TenantApiKeys
-    participant Lambda
-    participant DynamoDB
+El widget envía:
 
-    Widget->>AppSync: sendChatMessage + x-api-key
-    AppSync->>TenantApiKeys: Buscar apiKeyHash
-    TenantApiKeys-->>AppSync: tenantId="andina"
-    AppSync->>Lambda: Invocar con tenantId
-    Lambda->>DynamoDB: Query con PK=tenantId
-    DynamoDB-->>Lambda: Datos del tenant
-    Lambda-->>AppSync: Respuesta
-    AppSync-->>Widget: Respuesta final
 ```
+x-api-key: pk_live_XXXX
+origin: https://dominio.cliente.com
+```
+
+AppSync + Lambda:
+
+1) recuperan API key  
+2) validan si está activa  
+3) validan allowedOrigins  
+4) obtienen su `tenantId`  
+5) añaden `tenantId` al contexto del resolver  
 
 ---
 
-## 🧠 5. Personalización por Tenant
+## 3.2 Panel Admin → JWT Cognito
 
-Cada tenant puede tener configuraciones distintas:
-
-- Idioma del widget.
-- Mensaje de bienvenida.
-- Colores.
-- Horarios de atención.
-- Políticas de reserva.
-- Plan contratado (FREE/PRO/ENTERPRISE).
-- Límites mensuales:
-  - Mensajes
-  - Reservas
-  - Tokens IA
-
-Estas configuraciones se guardan en:
+El JWT contiene:
 
 ```
-Tenants.settings
+tenantId: "TENANT_123"
+role: "ADMIN"
 ```
 
-**Ejemplo:**
+AppSync usa estos claims para:
 
-```json
-{
-  "settings": {
-    "language": "es-CL",
-    "widget": {
-      "primaryColor": "#f44336",
-      "greetingMessage": "Hola, ¿en qué puedo ayudarte?"
-    },
-    "booking": {
-      "minAdvanceMinutes": 60,
-      "maxAdvanceDays": 30
-    },
-    "ai": {
-      "provider": "bedrock",
-      "model": "claude-3-sonnet"
-    }
-  }
+- asegurar acceso  
+- autorizar operaciones admin  
+- filtrar queries por `tenantId`
+
+---
+
+# 🗄️ 4. Diseño Multi-Tenant en DynamoDB
+
+### Patrón base:
+
+```
+PK: TENANT#<tenantId>
+SK: <ENTITY>#<entityId>
+```
+
+Ejemplo Services:
+
+```
+PK = TENANT#DERMASKIN
+SK = SERVICE#123
+```
+
+### Beneficios:
+
+- Aislamiento natural  
+- Escalabilidad horizontal automática  
+- Costo extremadamente bajo  
+- Queries rápidas por tenant  
+- Evita necesidad de múltiples instancias o clusters  
+
+### Tablas multi-tenant:
+
+- Services  
+- Providers  
+- ProviderAvailability  
+- BookingExceptions  
+- Bookings  
+- Conversations  
+- TenantApiKeys  
+- Tenants  
+- TenantUsage
+
+---
+
+# 🧩 5. Multi-Tenant en AppSync
+
+Cada operación tiene una política clara:
+
+### Público (Widget)
+- requiere API key válida  
+- requiere origin permitido  
+- solo tiene acceso a:
+  - servicios
+  - proveedores
+  - disponibilidad
+  - reservar
+
+### Privado (Admin)
+- requiere JWT con tenantId  
+- claims definen permisos  
+- acceso total SOLO al tenant del JWT
+
+---
+
+# 📦 6. Configuración por Tenant (Settings)
+
+Cada tenant puede configurar:
+
+- branding del widget  
+- idioma  
+- servicios ofrecidos  
+- profesionales  
+- disponibilidad  
+- IA activada/desactivada  
+- plan contratado  
+- límites por plan  
+- API Keys  
+- dominios permitidos  
+
+Ejemplo en DynamoDB:
+
+```
+PK = TENANT#DERMASKIN
+SK = SETTINGS#GLOBAL
+settings = {
+  widget: {...},
+  ai: {...},
+  booking: {...},
+  limits: {...},
 }
 ```
 
 ---
 
-## 📈 6. Escalabilidad Multi-Tenant
+# 🧠 7. Multi-Tenant y Modo IA
 
-El diseño está optimizado para:
+Cada tenant controla su modo de agente:
 
-- Hasta **miles de tenants**.
-- **Cientos de miles** de conversaciones simultáneas.
-- **Millones de mensajes** por día.
+### 1. **FSM (sin IA)**  
+0 costo adicional.
 
-### Por qué escala:
+### 2. **NLP asistido (Bedrock Haiku)**  
+Costo bajo → ideal PRO/BUSINESS.
 
-- **DynamoDB** escala por partición → partición = tenant.
-- **Lambdas** escalan horizontalmente.
-- **AppSync** maneja múltiples conexiones simultáneas.
-- El widget se sirve por **CDN global**.
+### 3. **IA completa (Bedrock Agent Core + Sonnet)**  
+Costo medio/alto → ENTERPRISE.
 
----
+El modo está almacenado en:
 
-## 🧹 7. Ventajas del enfoque
+```
+PK = TENANT#123
+SK = SETTINGS#AI
+```
 
-### ✔ Aislamiento fuerte
-Un tenant nunca verá datos de otro.
-
-### ✔ Administración central
-Todas las empresas comparten el backend.
-
-### ✔ Flexible
-Puedes mover un tenant grande a otra cuenta/región si lo necesitas.
-
-### ✔ Observabilidad
-Cada operación registra:
-
-- `tenantId`
-- `apiKeyId`
-- uso de recursos
-- auditoría por tenant
-
-### ✔ Facturación por Tenant
-Puedes habilitar:
-
-- pay-per-use
-- planes fijos
-- límites por plan
+Las Lambdas leen este setting en cada request del agente.
 
 ---
 
-## 📦 8. Resumen del diseño multi-tenant
+# 👥 8. Multi-Tenant y Usuarios
 
-| Componente | Mecanismo multi-tenant |
-|------------|------------------------|
-| Widget | API Key → `tenantId` |
-| AppSync | Auth API Key o JWT → `tenantId` |
-| Lambdas | Parametrizadas con `tenantId` |
-| DynamoDB | PKs segmentadas por `tenantId` |
-| Panel Admin | Cognito con claim `tenantId` |
+Los usuarios del panel admin también están aislados:
+
+- `tenantId` en JWT obliga a que solo vean su información  
+- roles disponibles:
+  - owner  
+  - admin  
+  - viewer  
+
+Nunca se usa un pool compartido sin claims de tenant.
 
 ---
 
-## 📚 Documentos relacionados
+# 📈 9. Multi-Tenant y Límites de Plan (Planes SaaS)
 
-- `/architecture/dynamodb-schema.md`
-- `/architecture/appsync-schema.md`
-- `/widget/README.md`
-- `/security/README.md`
+Cada tenant tiene límites configurables:
+
+| Plan | Mensajes | Reservas | Profesionales | IA | Costo |
+|-------|-----------|------------|----------------|--------|--------|
+| FREE | 500 | 50 | 1 | FSM | $0 |
+| PRO | 20k | 2k | 3 | NLP Haiku | $49 |
+| BUSINESS | 100k | 10k | 10 | IA parcial | $149 |
+| ENTERPRISE | ilimitado | ilimitado | 50 | full AI | $299–499 |
+
+Estos límites están guardados en `TenantUsage` y `TenantSettings`.
+
+---
+
+# 📊 10. Multi-Tenant y Métricas
+
+Se rastrea por tenant:
+
+- número de mensajes  
+- reservas creadas  
+- tokens IA consumidos  
+- errores  
+- peak usage  
+- orígenes usados  
+
+Esto permite:
+- facturación  
+- restricciones por plan  
+- dashboards individuales  
+
+---
+
+# 🌎 11. Multi-Región / Multi-Cuenta
+
+Recomendado para escalabilidad o cumplimiento:
+
+### Multi-Región
+- CloudFront → distribución global  
+- DynamoDB Global Table → resiliencia regional  
+- AppSync multi-region → failover
+
+### Multi-Cuenta
+- DEV → QA → PROD  
+- Tenants enterprise en cuenta dedicada (opcional)  
+- API keys y datos se replican entre regiones si es necesario  
+
+---
+
+# 🔒 12. Seguridad Multi-Tenant
+
+| Riesgo | Mitigación |
+|--------|-------------|
+| Acceso cruzado de tenant | PK = TENANT# en Dynamo, validación en Lambda |
+| API key filtrada | Rotación, hashing, allowedOrigins |
+| Ataques de inyección | VTL sanitizado, Lambdas a prueba de tampering |
+| Abuso del widget | rate limiting por API Key |
+| Sobrecarga IA | límites por tenant |
+
+---
+
+# ⚙️ 13. Operaciones Multi-Tenant
+
+### Crear tenant
+1. entry en tabla Tenants  
+2. settings iniciales  
+3. API key generada  
+4. onboarding automático
+
+### Migrar tenant
+- copiar servicios y profes  
+- mover settings  
+- reemitir API key  
+- update DNS si se usa domain específico
+
+### Eliminar tenant
+- soft delete (flag `status=DELETED`)  
+- borrar datos con TTL opcional  
+
+---
+
+# 🧭 14. Roadmap Multi-Tenant
+
+- soporte multi-branch sub-tenants  
+- entornos dedicados por tenant (enterprise)  
+- replicación total en múltiples regiones  
+- límites configurables dinámicamente  
+- tenant health score  
+
+---
+
+# ✔️ Fin del archivo
