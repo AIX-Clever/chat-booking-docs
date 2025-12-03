@@ -1,23 +1,292 @@
-# Seguridad — SaaS Multi-Tenant
+# Seguridad — SaaS Agentic Booking Chat
 
-Este documento describe el modelo de seguridad implementado en el SaaS Agentic Booking Chat.
+Este documento describe todas las medidas de seguridad necesarias para operar un SaaS multi-tenant que utiliza un widget público, un backend GraphQL, Lambdas serverless, IA opcional y un panel administrativo.
 
----
+Seguridad es un componente fundamental, dado que:
 
-## 🔒 Principios de seguridad
-
-1. **Aislamiento por tenant**: Datos completamente separados
-2. **Autenticación robusta**: Cognito para admins, API Keys para widgets
-3. **Autorización granular**: Permisos por rol
-4. **Encriptación**: En tránsito y en reposo
-5. **Auditoría completa**: Todos los accesos registrados
-6. **Rate limiting**: Protección contra abuso
+- el widget es público,
+- múltiples tenants comparten infraestructura,
+- se manejan reservas (PII),
+- hay integración con agentes de IA (Bedrock),
+- se usan API keys y JWT,
+- cada tenant requiere aislamiento estricto.
 
 ---
 
-## 🔐 Autenticación
+## 🔐 1. Modelo general de seguridad
 
-### 1. Panel Administrativo (Cognito)
+El sistema separa seguridad en dos planos:
+
+### 1) **Plano Público (Widget)**
+Basado en:
+- API key pública (truncada, scope restringido)
+- allowedOrigins
+- rate limiting por tenant y key
+
+### 2) **Plano Privado (Admin Panel)**
+Basado en:
+- Cognito + JWT
+- Claims `tenantId` + `role`
+- Autorización estricta en AppSync
+
+Ambos convergen en AppSync, que aplica políticas diferentes según el tipo de request.
+
+---
+
+## 🧩 2. Seguridad del Widget Público
+
+### ¿Qué puede hacer el widget?
+Solo operaciones de lectura y reserva:
+
+- listar servicios
+- listar profesionales
+- obtener disponibilidad
+- enviar mensajes al agente
+- crear reserva
+
+⚠️ **Nunca** puede:
+- listar todos los clientes
+- eliminar datos
+- ver usuarios del panel
+- ajustar settings del tenant
+- crear API keys
+- acceder a otro tenant
+
+### Controles aplicados
+
+| Control | Descripción |
+|---------|-------------|
+| **API Key pública** | Incluida en el script y enviada en headers |
+| **Allowed Origins** | Se verifica que el dominio actual esté en la lista del tenant |
+| **Scope de AppSync** | Solo resolvers públicos están habilitados |
+| **Rate limiting** | Previene abuso por bots |
+| **Hashing de API keys** | En la DB no se almacena la API key en claro |
+| **Rotación de keys** | Owners pueden rotar keys sin downtime |
+
+---
+
+## 🔑 3. API Keys — formato, seguridad y rotación
+
+### 3.1 Generación
+
+Cuando el tenant crea una API key en el panel:
+
+- se genera una key larga, del tipo `pk_live_<random>`
+- se muestra **solo una vez**
+- se almacena su **hash** (bcrypt/scrypt/argon2id)
+- se almacena:
+  - `publicKey`
+  - `allowedOrigins`
+  - `lastUsedAt`
+  - `status` (`ACTIVE`, `REVOKED`)
+
+### 3.2 Validación en AppSync
+
+Cada request pública incluye:
+
+```
+x-api-key: pk_live_XXXX
+origin: https://dominio-del-cliente.com
+```
+
+El resolver Lambda verifica:
+
+1. existe ese hash  
+2. está activa  
+3. el origin está permitido  
+4. no excede límites del plan  
+5. obtiene `tenantId`  
+
+### 3.3 Rotación
+
+El tenant puede:
+
+- crear una nueva key  
+- actualizar snippet del widget  
+- revocar key antigua  
+
+---
+
+## 👥 4. Seguridad del Panel Administrativo
+
+El panel usa:
+
+- **Cognito Hosted UI** o login embebido  
+- Claims importantes en el JWT:
+  - `tenantId`
+  - `role` (`OWNER`, `ADMIN`, `VIEWER`)
+
+### 4.1 Autorización en AppSync (admin)
+
+Los resolvers admin verifican:
+
+| Claim | Uso |
+|-------|-----|
+| `tenantId` | determinar acceso a datos |
+| `role` | reglas RBAC |
+
+Ejemplo:
+
+```
+owner → acceso total
+admin → sin acceso a API keys ni usuarios
+viewer → solo queries
+```
+
+---
+
+## 🏛️ 5. Seguridad Multi-Tenant
+
+Todo el backend aplica **aislamiento lógico** por tenant mediante:
+
+- `tenantId` embebido en PK de DynamoDB
+- validación estricta de `tenantId` en todas las Lambdas
+- claims de Cognito en el panel admin
+- API keys asociadas exclusivamente a un tenant
+
+### Garantía:
+"Un tenant jamás puede acceder a datos de otro tenant, incluso si manipula requests."
+
+---
+
+## 🔐 6. IAM minimalista
+
+Reglas recomendadas:
+
+### 6.1 Lambda
+
+Cada Lambda debe tener permisos **solo** a su entidad:
+
+Ejemplo `/booking`:
+
+```
+dynamodb:GetItem
+dynamodb:PutItem
+dynamodb:UpdateItem
+```
+
+### 6.2 AppSync
+
+- IAM role por entorno  
+- políticas separadas para resolvers públicos y privados  
+- acceso indirecto a DynamoDB (nunca directo desde front)
+
+### 6.3 CI/CD con OIDC
+
+- GitHub Actions → OIDC role  
+- Solo permite deploy en carpeta específica  
+- No se guardan credentials en GitHub  
+
+---
+
+## 📦 7. Seguridad del Agente IA (Bedrock)
+
+Si el tenant utiliza IA:
+
+### 7.1 Riesgos cubiertos
+
+- No se envía información sensible del usuario final al modelo  
+- El prompt system-level corta PII innecesaria  
+- Se utiliza context trimming  
+- Se evita el reenvío de histórico completo  
+- Los "tools" (Lambdas) tienen límites estrictos  
+- No se exponen secretos, keys ni configuraciones internas  
+
+### 7.2 Tokens y Costos
+
+- Se monitorean tokens por tenant  
+- Cortes automáticos si excede el plan  
+- Mensaje al usuario:  
+  "El asistente no está disponible en este momento."
+
+---
+
+## 🛡️ 8. Amenazas y mitigaciones
+
+| Amenaza | Mitigación |
+|---------|-------------|
+| Inyección GraphQL | VTL sanitizado + resolvers Lambda |
+| Uso fraudulento de API key | allowedOrigins + rate limiting + rotación |
+| Intento de acceso entre tenants | validación estricta de tenantId |
+| Exceso de tráfico | throttling + CloudFront caching |
+| Fuga de JWT | expiración corta + refresh seguro |
+| Exceso de IA tokens | límites por tenant + alertas |
+| CSP del sitio bloquea widget | guía de configuración CSP |
+| Spam en reservas | captcha (opcional) |
+
+---
+
+## 🚨 9. Playbook: qué hacer si se filtra una API key
+
+1. **Revocar la API key inmediatamente**  
+   Panel → API Keys → "Revocar".
+
+2. **Crear una nueva key**  
+   Panel → API Keys → "Crear nueva".
+
+3. **Actualizar el snippet** en el sitio del cliente.
+
+4. **Revisar logs de uso**  
+   CloudWatch Insights → filtrar por esa publicKey.
+
+5. **Monitorear límites del tenant**  
+   Revisar `TenantUsage`.
+
+6. **Notificar al tenant** (si corresponde).
+
+---
+
+## 🔍 10. Logging seguro y privacidad
+
+### 10.1 Logs anonimizados
+- Nunca loguear correo del usuario final  
+- Nunca loguear texto completo si contiene PII  
+- En modo IA: truncar mensajes > 500 chars
+
+### 10.2 Retención
+- 30 días recomendado  
+- 7 días si se almacena conversación completa  
+- TTL configurado por tabla (opcional)
+
+### 10.3 GDPR-ready / LGPD-ready
+- Fácil eliminación de datos por tenant  
+- Conversaciones con TTL  
+- Reservas pueden mantenerse según requisitos del cliente
+
+---
+
+## 🔎 11. Auditoría y Monitoreo
+
+### Monitoreo recomendado:
+
+- AppSync error rate  
+- Lambda duration/errors  
+- DynamoDB throttles  
+- Consumo por API key  
+- Tokens Bedrock por tenant  
+- AllowedOrigin failures  
+- Intentos de acceso entre tenants  
+
+### Alarmas CloudWatch:
+- más de X reservas por minuto  
+- más de X tokens IA en 1h  
+- aumento repentino de 5xx en AppSync  
+
+---
+
+## 🧭 12. Roadmap de Seguridad
+
+- soporte para Web Application Firewall (WAF)  
+- signed-requests por tenant (Admin API avanzada)  
+- integración con CloudTrail Lake  
+- DLP (Data Loss Prevention) para prompts IA  
+- auditoría avanzada por tenant  
+
+---
+
+## 📚 Documentación Legacy (referencia)
+
+### Panel Administrativo (Cognito)
 
 **Método**: AWS Cognito User Pools
 
