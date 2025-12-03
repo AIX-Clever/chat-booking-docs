@@ -1,597 +1,321 @@
-# Pipeline CI/CD — Automatización de Deploy
+# CI/CD & Deployment — SaaS Agentic Booking Chat
 
-Este documento describe el pipeline de CI/CD para automatizar el deployment del SaaS.
+Este documento describe el proceso completo de **despliegue**, **versionado**, **promociones entre entornos**, y **automatización CI/CD** para la plataforma.
 
----
+La arquitectura contempla:
 
-## 🎯 Objetivos del pipeline
-
-1. **Build automático** al hacer push a branches específicos
-2. **Tests automáticos** (unit, integration, e2e)
-3. **Deploy a múltiples ambientes** (dev, qa, prod)
-4. **Rollback automático** en caso de fallos
-5. **Notificaciones** a Slack/email
+- Widget embebible (React) → desplegado en **CloudFront + S3**
+- Backend serverless → desplegado con **CloudFormation**
+- Multi-entorno: **dev**, **qa**, **prod**
+- Integración segura con **GitHub Actions (OIDC)**
 
 ---
 
-## 🏗️ Arquitectura del pipeline
+## 🏗️ 1. Estructura de Despliegue
 
-```
-GitHub → GitHub Actions → AWS CodeBuild → AWS CodeDeploy → CloudFormation/CDK
-         |
-         └──> Tests → Quality Gates → Deploy
-```
+La plataforma se divide en 2 artefactos principales:
 
-**Alternativa**: GitLab CI, CircleCI, Jenkins
+### 1. Widget (Frontend público)
+- Construido con React + MUI
+- Empaquetado en UMD/IIFE
+- Publicado en:
+  - `s3://<bucket-widget>/<version>/chat-widget.js`
+  - `s3://<bucket-widget>/latest/chat-widget.js`
+- Distribuido por CloudFront
+- Invalidación automática al desplegar
 
----
+### 2. Backend (Infraestructura & Lambdas)
+Incluye:
+- AppSync GraphQL API
+- Lambdas en Python
+- DynamoDB (tablas multi-tenant)
+- IAM roles
+- SQS/EventBridge (si aplica)
+- API Keys
+- Cognito (admin panel)
 
-## 🔄 Workflow completo
-
-```mermaid
-graph LR
-    A[Push to GitHub] --> B{Branch?}
-    B -->|main| C[Run Tests]
-    B -->|develop| D[Run Tests + Deploy DEV]
-    B -->|feature/*| E[Run Tests only]
-    
-    C --> F{Tests pass?}
-    F -->|Yes| G[Build Lambda packages]
-    F -->|No| H[Fail + Notify]
-    
-    G --> I[Build Widget]
-    I --> J[Deploy to PROD]
-    J --> K[Run smoke tests]
-    
-    K --> L{Smoke tests pass?}
-    L -->|Yes| M[Success + Notify]
-    L -->|No| N[Rollback + Notify]
-    
-    D --> O[Deploy to DEV]
-    O --> P[Run integration tests]
-```
+Desplegado con:
+- `./cloudformation/deploy.sh <environment>`
 
 ---
 
-## 🔧 GitHub Actions — Configuración completa
+## 🔐 2. Autenticación segura con GitHub Actions (OIDC)
 
-### Archivo: `.github/workflows/deploy.yml`
+Se evita completamente el uso de claves IAM en GitHub.
 
-```yaml
-name: Deploy Chat Booking SaaS
+### Beneficios:
+- cero secretos estáticos  
+- permisos temporales  
+- rotación automática  
+- cumplimiento modern best practices  
 
-on:
-  push:
-    branches:
-      - main
-      - develop
-  pull_request:
-    branches:
-      - main
+### Requisitos:
+- Rol IAM con `sts:AssumeRoleWithWebIdentity`
+- Identity Provider: `token.actions.githubusercontent.com`
 
-env:
-  AWS_REGION: us-east-1
-  PYTHON_VERSION: '3.9'
-  NODE_VERSION: '16'
+Ejemplo de trust policy:
 
-jobs:
-  # ==================
-  # Job 1: Tests
-  # ==================
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-      
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-      
-      - name: Install dependencies
-        run: |
-          cd lambda
-          pip install -r requirements.txt
-          pip install pytest pytest-cov
-      
-      - name: Run unit tests
-        run: |
-          cd lambda
-          pytest tests/unit --cov=. --cov-report=xml
-      
-      - name: Upload coverage
-        uses: codecov/codecov-action@v3
-        with:
-          file: ./lambda/coverage.xml
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-      
-      - name: Install widget dependencies
-        run: |
-          cd widget
-          npm ci
-      
-      - name: Run widget tests
-        run: |
-          cd widget
-          npm test
-      
-      - name: Lint
-        run: |
-          cd widget
-          npm run lint
-
-  # ==================
-  # Job 2: Build
-  # ==================
-  build:
-    needs: test
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-      
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-      
-      - name: Package Lambda functions
-        run: |
-          cd lambda
-          mkdir -p dist
-          
-          # Package each Lambda
-          for dir in */; do
-            echo "Packaging ${dir%/}..."
-            cd $dir
-            pip install -r requirements.txt -t .
-            zip -r ../dist/${dir%/}.zip .
-            cd ..
-          done
-      
-      - name: Upload Lambda artifacts
-        uses: actions/upload-artifact@v3
-        with:
-          name: lambda-packages
-          path: lambda/dist/*.zip
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-      
-      - name: Build widget
-        run: |
-          cd widget
-          npm ci
-          npm run build
-      
-      - name: Upload widget artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: widget-build
-          path: widget/dist/
-
-  # ==================
-  # Job 3: Deploy DEV
-  # ==================
-  deploy-dev:
-    needs: build
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/develop'
-    environment: development
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-      
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-      
-      - name: Download Lambda artifacts
-        uses: actions/download-artifact@v3
-        with:
-          name: lambda-packages
-          path: lambda-packages/
-      
-      - name: Deploy Lambda functions
-        run: |
-          for lambda in lambda-packages/*.zip; do
-            func_name=$(basename $lambda .zip)
-            echo "Deploying $func_name..."
-            aws lambda update-function-code \
-              --function-name dev-$func_name \
-              --zip-file fileb://$lambda
-          done
-      
-      - name: Download widget artifact
-        uses: actions/download-artifact@v3
-        with:
-          name: widget-build
-          path: widget-dist/
-      
-      - name: Deploy widget to S3
-        run: |
-          aws s3 sync widget-dist/ s3://chat-booking-widget-dev/ \
-            --delete \
-            --cache-control "public, max-age=3600"
-      
-      - name: Invalidate CloudFront cache
-        run: |
-          aws cloudfront create-invalidation \
-            --distribution-id ${{ secrets.CLOUDFRONT_DIST_ID_DEV }} \
-            --paths "/*"
-      
-      - name: Run smoke tests
-        run: |
-          cd tests/smoke
-          npm ci
-          npm test -- --env=dev
-
-  # ==================
-  # Job 4: Deploy PROD
-  # ==================
-  deploy-prod:
-    needs: build
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    environment: production
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-      
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_PROD }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_PROD }}
-          aws-region: ${{ env.AWS_REGION }}
-      
-      - name: Download Lambda artifacts
-        uses: actions/download-artifact@v3
-        with:
-          name: lambda-packages
-          path: lambda-packages/
-      
-      - name: Create Lambda versions
-        id: lambda-versions
-        run: |
-          for lambda in lambda-packages/*.zip; do
-            func_name=$(basename $lambda .zip)
-            echo "Updating $func_name..."
-            
-            # Update code
-            aws lambda update-function-code \
-              --function-name prod-$func_name \
-              --zip-file fileb://$lambda
-            
-            # Publish version
-            version=$(aws lambda publish-version \
-              --function-name prod-$func_name \
-              --query 'Version' \
-              --output text)
-            
-            echo "${func_name}_version=$version" >> $GITHUB_OUTPUT
-          done
-      
-      - name: Update Lambda aliases
-        run: |
-          for lambda in lambda-packages/*.zip; do
-            func_name=$(basename $lambda .zip)
-            version=${{ steps.lambda-versions.outputs[format('{0}_version', func_name)] }}
-            
-            # Update LIVE alias
-            aws lambda update-alias \
-              --function-name prod-$func_name \
-              --name LIVE \
-              --function-version $version
-          done
-      
-      - name: Download widget artifact
-        uses: actions/download-artifact@v3
-        with:
-          name: widget-build
-          path: widget-dist/
-      
-      - name: Deploy widget to S3 with versioning
-        run: |
-          VERSION=$(git rev-parse --short HEAD)
-          
-          # Upload to versioned path
-          aws s3 sync widget-dist/ s3://chat-booking-widget-prod/$VERSION/ \
-            --cache-control "public, max-age=31536000, immutable"
-          
-          # Upload to /latest (short cache)
-          aws s3 sync widget-dist/ s3://chat-booking-widget-prod/latest/ \
-            --cache-control "public, max-age=3600"
-      
-      - name: Invalidate CloudFront cache
-        run: |
-          aws cloudfront create-invalidation \
-            --distribution-id ${{ secrets.CLOUDFRONT_DIST_ID_PROD }} \
-            --paths "/latest/*"
-      
-      - name: Run smoke tests
-        id: smoke-tests
-        run: |
-          cd tests/smoke
-          npm ci
-          npm test -- --env=prod
-      
-      - name: Rollback on failure
-        if: failure() && steps.smoke-tests.outcome == 'failure'
-        run: |
-          echo "Smoke tests failed, rolling back..."
-          
-          # Get previous version from aliases
-          for lambda in lambda-packages/*.zip; do
-            func_name=$(basename $lambda .zip)
-            
-            # Get current LIVE version
-            current=$(aws lambda get-alias \
-              --function-name prod-$func_name \
-              --name LIVE \
-              --query 'FunctionVersion' \
-              --output text)
-            
-            # Get previous version (current - 1)
-            previous=$((current - 1))
-            
-            # Rollback alias
-            aws lambda update-alias \
-              --function-name prod-$func_name \
-              --name LIVE \
-              --function-version $previous
-          done
-      
-      - name: Notify Slack on success
-        if: success()
-        uses: slackapi/slack-github-action@v1
-        with:
-          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
-          payload: |
-            {
-              "text": "✅ Deploy to PROD successful!",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "*Deploy to PROD successful!*\nCommit: ${{ github.sha }}\nActor: ${{ github.actor }}"
-                  }
-                }
-              ]
-            }
-      
-      - name: Notify Slack on failure
-        if: failure()
-        uses: slackapi/slack-github-action@v1
-        with:
-          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
-          payload: |
-            {
-              "text": "❌ Deploy to PROD failed!",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "*Deploy to PROD FAILED!*\nCommit: ${{ github.sha }}\nActor: ${{ github.actor }}\nCheck logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                  }
-                }
-              ]
-            }
-
-  # ==================
-  # Job 5: Integration Tests
-  # ==================
-  integration-tests:
-    needs: deploy-prod
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-      
-      - name: Run integration tests
-        run: |
-          cd tests/integration
-          npm ci
-          npm test -- --env=prod
-        env:
-          API_URL: ${{ secrets.APPSYNC_API_URL_PROD }}
-          API_KEY: ${{ secrets.API_KEY_TEST }}
-```
-
----
-
-## 🧪 Tests en el pipeline
-
-### Unit Tests (Lambda)
-
-```python
-# tests/unit/test_chat_agent.py
-import pytest
-from chat_agent.fsm import ConversationFSM
-
-def test_init_state():
-    fsm = ConversationFSM('test_tenant')
-    result = fsm.process_message(None, 'Necesito un masaje', {})
-    
-    assert result['message']['sender'] == 'AGENT'
-    assert len(result['suggestedServices']) > 0
-
-def test_service_selection():
-    fsm = ConversationFSM('test_tenant')
-    # ... más tests
-```
-
-### Integration Tests (API)
-
-```javascript
-// tests/integration/booking.test.js
-const { GraphQLClient } = require('graphql-request');
-
-const client = new GraphQLClient(process.env.API_URL, {
-  headers: {
-    'x-api-key': process.env.API_KEY
-  }
-});
-
-describe('Booking Flow', () => {
-  it('should create a booking successfully', async () => {
-    const mutation = `
-      mutation {
-        createBooking(input: {
-          serviceId: "svc_test"
-          providerId: "pro_test"
-          start: "2025-12-10T15:00:00Z"
-          customerEmail: "test@example.com"
-        }) {
-          id
-          status
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": { "Federated": "arn:aws:iam::<ACCOUNT>:oidc-provider/token.actions.githubusercontent.com" },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringLike": {
+          "token.actions.githubusercontent.com:sub": "repo:<OWNER>/<REPO>:ref:refs/heads/main"
         }
       }
-    `;
-    
-    const result = await client.request(mutation);
-    expect(result.createBooking.status).toBe('PENDING');
-  });
-});
-```
-
-### Smoke Tests (Post-deploy)
-
-```javascript
-// tests/smoke/widget.test.js
-const puppeteer = require('puppeteer');
-
-describe('Widget Smoke Tests', () => {
-  let browser, page;
-  
-  beforeAll(async () => {
-    browser = await puppeteer.launch();
-    page = await browser.newPage();
-  });
-  
-  it('should load widget on page', async () => {
-    await page.goto('https://test-site.com');
-    
-    // Wait for widget to load
-    await page.waitForSelector('#chat-agent-widget-launcher');
-    
-    // Click to open
-    await page.click('#chat-agent-widget-launcher');
-    
-    // Verify chat window appears
-    const chatWindow = await page.$('#chat-agent-widget-window');
-    expect(chatWindow).toBeTruthy();
-  });
-  
-  afterAll(async () => {
-    await browser.close();
-  });
-});
+    }
+  ]
+}
 ```
 
 ---
 
-## 🔐 Secrets en GitHub
-
-Configurar en **Settings → Secrets and variables → Actions**:
+## 🔄 3. Flujo de CI/CD Completo
 
 ```
-AWS_ACCESS_KEY_ID
-AWS_SECRET_ACCESS_KEY
-AWS_ACCESS_KEY_ID_PROD
-AWS_SECRET_ACCESS_KEY_PROD
-CLOUDFRONT_DIST_ID_DEV
-CLOUDFRONT_DIST_ID_PROD
-APPSYNC_API_URL_PROD
-API_KEY_TEST
-SLACK_WEBHOOK_URL
+Push to GitHub
+ ├─▶ Lint + Test + Build
+ ├─▶ Build Widget
+ │     ├─▶ Upload to S3
+ │     └─▶ CloudFront Invalidation
+ ├─▶ Build Backend (CloudFormation)
+ │     └─▶ Deploy to Dev
+ └─▶ Manual Approval → Deploy to QA/PROD
+```
+
+**Pasos:**
+
+1. **Linting & Tests**
+   - Jest (widget)
+   - Pytest (lambdas)
+   - ESLint
+
+2. **Build del Widget**
+   - `npm run build:widget`
+   - Artefacto UMD/IIFE generado en `/widget/build`
+
+3. **Upload a S3**
+   - `aws s3 sync build/ s3://widget-bucket/<version>/`
+   - actualizar `latest/` según política de release
+
+4. **Invalidación de CloudFront**
+   - se invalida `/latest/*`
+
+5. **Deploy del Backend**
+   - `./cloudformation/deploy.sh <env>`
+
+6. **Promoción QA/PROD**
+   - requiere aprobación manual
+   - backend y widget via pipeline
+
+---
+
+## 🪄 4. Versionado del Widget
+
+### 4.1 Tagging Semántico
+
+Cada release incluye:
+
+- `v1.0.0` (versión exacta)
+- `latest` (etiqueta móvil)
+- `canary` (para pruebas de clientes específicos)
+
+### 4.2 Rutas en S3
+
+```
+s3://widget-bucket/v1.0.0/chat-widget.js
+s3://widget-bucket/v1.1.0/chat-widget.js
+s3://widget-bucket/latest/chat-widget.js
+s3://widget-bucket/canary/chat-widget.js
+```
+
+### 4.3 Usos en producción
+
+**Tenant típico usa:**
+
+```html
+<script src="https://cdn.../chat-widget/latest/chat-widget.js">
+```
+
+**Cliente enterprise puede usar un release fijo:**
+
+```html
+<script src="https://cdn.../chat-widget/v1.0.0/chat-widget.js">
 ```
 
 ---
 
-## 📊 Monitoreo del pipeline
+## 📦 5. Versionado del Backend
 
-### Badges en README
+Se recomienda:
 
-```markdown
-![Deploy Status](https://github.com/tu-org/chat-booking-saas/workflows/Deploy/badge.svg)
-![Tests](https://github.com/tu-org/chat-booking-saas/workflows/Tests/badge.svg)
-[![codecov](https://codecov.io/gh/tu-org/chat-booking-saas/branch/main/graph/badge.svg)](https://codecov.io/gh/tu-org/chat-booking-saas)
-```
+- versionar la API con graphql-schema versionado en Git
+- usar `cloudformation validate` para detectar errores
+- incluir CHANGELOG.md para breaking changes
 
-### Notificaciones
+**Estrategias:**
 
-- ✅ **Slack**: Deploy exitoso/fallido
-- 📧 **Email**: Solo en fallos críticos
-- 📱 **PagerDuty**: Para producción
+**A) Deploy directo (desarrollo)**
+- rápido
+- ideal para dev
 
----
-
-## 🔄 Estrategias de deploy
-
-### Blue/Green Deployment
-
-```yaml
-# Lambda con alias BLUE y GREEN
-# Traffic shifting gradual
-
-aws lambda update-alias \
-  --function-name prod-chat-agent \
-  --name LIVE \
-  --routing-config AdditionalVersionWeights={"2"=0.1}
-
-# Incrementar gradualmente
-# 10% → 25% → 50% → 100%
-```
-
-### Canary Deployment
-
-```yaml
-# AppSync: routing 10% a nueva versión
-# Monitorear errores por 1 hora
-# Si OK, 100%, si no, rollback
-```
+**B) Deploy azul/verde (producción)**
+- duplicar stack con un sufijo (-blue, -green)
+- cambiar alias DNS o output de AppSync
+- eliminar stack anterior luego de validar
 
 ---
 
-## 🆘 Rollback manual
+## 🧩 6. Múltiples entornos: Dev / QA / Prod
+
+### Recomendación
+
+| Entorno | Propósito | Qué incluye |
+|---------|-----------|-------------|
+| Dev | desarrollo, testing manual | DynamoDB dev, Lambdas dev, widget dev |
+| QA | validación interna | datos semilla, release candidate |
+| Prod | clientes reales | multi-tenant productivo |
+
+### Autorización de promociones
+
+- Dev → (auto)
+- QA → (manual approval)
+- Prod → (manual approval + checklist)
+
+---
+
+## 📜 7. Rollback seguro
+
+### Widget
+
+1. cambiar `latest` → version anterior
+2. invalidar CloudFront
+3. listo (rollback instantáneo)
+
+### Backend
+
+**Opciones:**
+
+- `aws cloudformation update-stack --use-previous-template`
+- mantener stacks paralelos (blue/green)
+- activar flag `DISABLE_IA` si la IA falla (safety)
+
+---
+
+## 🛠️ 8. Desarrollo local (Local Dev)
+
+### Lambda Local
+
+Usar AWS SAM:
 
 ```bash
-# Rollback Lambda
-aws lambda update-alias \
-  --function-name prod-chat-agent \
-  --name LIVE \
-  --function-version <PREVIOUS_VERSION>
-
-# Rollback Widget (cambiar CloudFront origin)
-aws cloudfront update-distribution \
-  --id DIST_ID \
-  --distribution-config file://rollback-config.json
+sam build
+sam local invoke ChatAgentFunction -e events/test.json
 ```
+
+### AppSync Local (Mock)
+
+```bash
+amplify mock
+```
+
+### DynamoDB Local
+
+```bash
+docker run -p 8000:8000 amazon/dynamodb-local
+```
+
+### Widget Local
+
+```bash
+cd widget
+npm install
+npm start
+```
+
+---
+
+## 🌐 9. Despliegue multi-tenant
+
+**No se despliega un backend por tenant.**  
+Un solo backend sirve a todos los tenants.
+
+Durante despliegues:
+
+- no se afectan API keys existentes
+- los tenants siguen operando sin downtime
+- AppSync permite múltiples versiones de resolvers
+
+---
+
+## 🔧 10. Infraestructura como Código (CloudFormation)
+
+Recomendación:
+
+Usar **CloudFormation con nested stacks** para backend:
+
+- tablas DynamoDB
+- roles IAM
+- Lambdas
+- API GraphQL AppSync
+- conexiones a Bedrock
+
+Scripts de deployment:
+
+```bash
+# Validar templates
+./cloudformation/validate.sh
+
+# Deploy a dev
+./cloudformation/deploy.sh dev
+
+# Deploy a prod
+./cloudformation/deploy.sh prod
+
+# Teardown
+./cloudformation/teardown.sh dev
+```
+
+---
+
+## 📈 11. Monitoring & Observability
+
+Se monitorean:
+
+- latencia AppSync
+- error rate
+- tokens IA por tenant
+- DynamoDB throttles
+- Lambda concurrency
+- CloudFront cache hit ratio
+
+**Alertas recomendadas:**
+
+- reserva fallida
+- excesos de tokens Bedrock
+- respuestas lentas (>2s)
+- tendencia a throttling
+- tenant sobrepasando su plan
+
+---
+
+## 🏁 12. Roadmap de CI/CD
+
+- release channels automáticos (alpha, beta, stable)
+- integración con Sentry
+- pipeline para Bedrock Agents (export/import)
+- pruebas visuales del widget
+- smoke tests post-deploy
 
 ---
 
 ## 📚 Documentos relacionados
 
-- [Deployment Guide](/deployment/README.md)
-- [Arquitectura](/architecture/README.md)
-- [Testing Strategy](/tests/README.md)
+- `/docs/deployment/README.md`
+- `/docs/architecture/README.md`
+- `/docs/security/README.md`
