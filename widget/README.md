@@ -166,7 +166,10 @@ El widget se comunica exclusivamente mediante GraphQL hacia AppSync, usando la A
 - listar profesionales
 - consultar disponibilidad
 - enviar mensaje al agente
-- crear reserva
+- enviar mensaje al agente
+- confirmar reserva (via `confirmBookingFromConversation`)
+
+> **Nota:** El widget no crea la reserva directamente; le solicita al Agente que "confirme" la conversación actual. El Agente valida los datos (contexto) y escribe en la base de datos.
 
 **Cada request incluye:**
 

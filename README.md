@@ -214,6 +214,7 @@ Los tenants pueden:
 
 ### `/architecture` — Arquitectura técnica
 - Diseño de arquitectura AWS
+- **[NUEVO] Estrategia de Desacoplamiento (Infraestructura)** (`/architecture/infrastructure-decoupling.md`)
 - Estrategia multi-tenant
 - Esquemas DynamoDB
 - Schema GraphQL (AppSync)

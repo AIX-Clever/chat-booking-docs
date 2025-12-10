@@ -28,9 +28,9 @@ El panel corresponde al "Backoffice" del SaaS.
 El panel cuenta con una página de login dedicada (`/login`) con las siguientes características:
 
 - **Diseño Split-Screen**: Área de marca visual a la izquierda y formulario limpio a la derecha.
-- **Mock Auth (Dev)**: Credenciales por defecto `admin@lucia.com` / `admin123`.
+- **Cognito + Amplify**: Implementación real utilizando `@aws-amplify/ui-react` y el componente `Authenticator`.
 - **Mecanismo de Logout**: Botón "Cerrar Sesión" integrado en el menú lateral.
-- **Gestión de Sesión**: Redirección automática si no hay sesión activa (simulado).
+- **AuthGuard**: Protección de rutas cliente que redirige autmáticamente a `/login` si no hay sesión válida.
 
 ---
 

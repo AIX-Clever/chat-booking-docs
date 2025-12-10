@@ -579,6 +579,11 @@ def check_tenant_limits(tenant_id, operation):
 - Emails y teléfonos encriptados en DynamoDB (opcional)
 - PII no se envía a servicios de AI externos
 
+### Infraestructura Frontend (S3 + CloudFront)
+
+- ✅ **Origin Access Control (OAC)**: El bucket S3 privado no tiene acceso público. Solo CloudFront puede leer los assets estáticos mediante firmas OAC.
+- ✅ **Políticas de Bucket**: Restringidas estrictamente al ARN de la distribución de CloudFront.
+
 ---
 
 ## 📝 Auditoría y Logging
