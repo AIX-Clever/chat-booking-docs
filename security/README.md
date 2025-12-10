@@ -536,7 +536,7 @@ Límite global por tenant (según plan):
 
 | Plan | Mensajes/mes | Reservas/mes | Requests/min |
 |------|--------------|--------------|--------------|
-| FREE | 500 | 50 | 10 |
+| LITE | 500 | 50 | 10 |
 | PRO | 10,000 | 1,000 | 100 |
 | ENTERPRISE | Ilimitado | Ilimitado | 1,000 |
 

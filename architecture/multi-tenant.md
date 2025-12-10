@@ -214,7 +214,7 @@ Cada tenant tiene límites configurables:
 
 | Plan | Mensajes | Reservas | Profesionales | IA | Costo |
 |-------|-----------|------------|----------------|--------|--------|
-| FREE | 500 | 50 | 1 | FSM | $0 |
+| LITE | 500 | 50 | 1 | FSM | 3 meses GRATIS, luego $9/mes (costo base AWS) |
 | PRO | 20k | 2k | 3 | NLP Haiku | $49 |
 | BUSINESS | 100k | 10k | 10 | IA parcial | $149 |
 | ENTERPRISE | ilimitado | ilimitado | 50 | full AI | $299–499 |

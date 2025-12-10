@@ -58,7 +58,7 @@ El agente puede funcionar en dos modos, dependiendo del plan del tenant:
 
 - Conversación estructurada
 - Bajo costo (prácticamente 0 USD)
-- Perfecto para planes FREE / PRO
+- Perfecto para planes LITE / PRO
 
 ### 2. IA Conversacional (Bedrock Agent Core + LLM)
 
@@ -128,34 +128,16 @@ Despliegues sin claves IAM y CI/CD moderno.
 
 ## 📦 Componentes del repositorio
 
-```
-/docs
-  /widget
-  /admin
-  /architecture
-  /security
-  /deployment
-  /usage
+El proyecto ahora utiliza una arquitectura multi-repositorio.
 
-/infrastructure
-  /cloudformation
-    master-stack.yaml
-    /nested-stacks
+👉 **Ver [REPOSITORIES.md](./REPOSITORIES.md) para el detalle completo.**
 
-/lambda
-  chat_agent/
-  booking/
-  availability/
-  catalog/
+*   `chat-booking-backend`: Lógica y API.
+*   `chat-booking-landing`: Landing page comercial.
+*   `chat-booking-widget`: Widget embebible.
+*   `chat-booking-admin`: Dashboard de administración.
+*   `chat-booking-docs`: Documentación (este repositorio).
 
-/widget
-  src/
-  build/
-
-/scripts
-  create_tenant.py
-  create_api_key.py
-```
 
 ---
 
@@ -202,10 +184,10 @@ Los tenants pueden:
 
 ## 🔄 CI/CD
 
-- GitHub Actions + OIDC
-- Deploy automático del widget (S3 + CloudFront)
-- Deploy del backend (CloudFormation)
-- Promociones a QA/PROD con approvals
+- GitHub Actions + OIDC (configurado por repositorio).
+- Pipelines independientes para Backend, Landing, Widget y Admin.
+- Deploy automático via CDK (`/infra` en cada repo).
+- Promociones a QA/PROD basadas en ramas.
 
 **Documentación:**  
 📄 `/docs/deployment/pipeline-ci-cd.md`

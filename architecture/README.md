@@ -94,7 +94,7 @@ El agente opera en dos modos:
 - No usa IA
 - Costo ~0
 - Conversación guiada por estados
-- Ideal para plan FREE/PRO
+- Ideal para plan LITE/PRO
 
 **FSM:**
 

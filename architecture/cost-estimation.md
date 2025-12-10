@@ -146,7 +146,7 @@ En promedio:
 
 | Plan | Costo real para ti | Precio recomendado |
 |------|-----------------------|----------------------|
-| FREE | < $0.10 | $0 |
+| LITE | < $0.10 | $0 (Trial) -> $9 (Base) |
 | PRO | ~$0.30–$1 | $49 |
 | BUSINESS | $2–$8 | $149 |
 | ENTERPRISE | $10–$40 | $299–499 |

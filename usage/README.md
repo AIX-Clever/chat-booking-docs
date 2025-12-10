@@ -48,7 +48,7 @@ INIT
 Características:
 - Predecible  
 - Muy barato (0 USD cost)  
-- Ideal para FREE/PRO  
+- Ideal para LITE/PRO  
 
 ---
 

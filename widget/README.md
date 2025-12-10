@@ -81,7 +81,7 @@ El widget no sabe si el agente opera con IA o modo determinístico; simplemente 
 
 - Conversación guiada
 - Bajo costo
-- Ideal para planes FREE y PRO
+- Ideal para planes LITE y PRO
 
 ### Modo IA (Bedrock Agent Core)
 
@@ -93,7 +93,23 @@ La activación de IA depende de la configuración del tenant.
 
 ---
 
-## 🔌 6. API JavaScript del Widget
+## 🛡 6. UX y Manejo de Estados
+
+El widget implementa mejoras de experiencia de usuario para evitar inconsistencias:
+
+### Protección Anti-Spam (Debounce UI)
+- Los componentes interactivos (`OptionsChips`, `ServiceChips`, `TimeSlots`) entran en estado **disabled** automáticamente cuando el chat está procesando (`isLoading`).
+- Se reduce la opacidad para indicar visualmente que no se permiten clicks adicionales.
+
+### Limpieza de Datos
+- Al recibir una nueva respuesta del agente, las opciones antiguas (servicios, slots anteriores) se limpian del estado para evitar que el usuario interactúe con flujo "pasado".
+
+### Confirmación de Reserva
+- Soporte para mensajes tipo `confirmation` que renderizan acciones críticas (Confirmar/Cancelar) con estilos diferenciados.
+
+---
+
+## 🔌 7. API JavaScript del Widget
 
 Después de cargar el script, se expone:
 
@@ -103,7 +119,7 @@ window.ChatAgentWidget
 
 ### Métodos disponibles
 
-#### 6.1 Inicializar manualmente
+#### 7.1 Inicializar manualmente
 
 ```javascript
 ChatAgentWidget.init({
@@ -116,19 +132,19 @@ ChatAgentWidget.init({
 });
 ```
 
-#### 6.2 Abrir el chat programáticamente
+#### 7.2 Abrir el chat programáticamente
 
 ```javascript
 ChatAgentWidget.open();
 ```
 
-#### 6.3 Cerrar el chat
+#### 7.3 Cerrar el chat
 
 ```javascript
 ChatAgentWidget.close();
 ```
 
-#### 6.4 Escuchar eventos del widget
+#### 7.4 Escuchar eventos del widget
 
 ```javascript
 ChatAgentWidget.on("booking:created", (payload) => {
@@ -140,7 +156,7 @@ Eventos completos más abajo.
 
 ---
 
-## 📡 7. Comunicación con el Backend
+## 📡 8. Comunicación con el Backend
 
 El widget se comunica exclusivamente mediante GraphQL hacia AppSync, usando la API key del tenant.
 
@@ -169,7 +185,7 @@ origin: window.location.origin
 
 ---
 
-## 📬 8. Eventos del Widget
+## 📬 9. Eventos del Widget
 
 | Evento | Cuándo ocurre | Payload |
 |--------|---------------|---------|
@@ -191,7 +207,7 @@ ChatAgentWidget.on("booking:created", (booking) => {
 
 ---
 
-## 🌐 9. Multi-idioma
+## 🌐 10. Multi-idioma
 
 **Soportado:** es, en, pt
 
@@ -206,7 +222,7 @@ Se pueden agregar idiomas adicionales por tenant.
 
 ---
 
-## 🧪 10. Testing del Widget
+## 🧪 11. Testing del Widget
 
 Recomendado:
 
@@ -227,7 +243,7 @@ usar "Mock AppSync server" o grabar respuestas con MSW.
 
 ---
 
-## 🚨 11. Troubleshooting (problemas comunes)
+## 🚨 12. Troubleshooting (problemas comunes)
 
 | Problema | Causa | Solución |
 |----------|-------|----------|
@@ -239,7 +255,7 @@ usar "Mock AppSync server" o grabar respuestas con MSW.
 
 ---
 
-## 🚀 12. Ejemplo completo (caso real)
+## 🚀 13. Ejemplo completo (caso real)
 
 ### Caso: "Clínica Dermaskin"
 
@@ -267,7 +283,7 @@ usar "Mock AppSync server" o grabar respuestas con MSW.
 
 ---
 
-## 🧭 13. Roadmap del Widget
+## 🧭 14. Roadmap del Widget
 
 - iFrame secure mode
 - Dark mode automático

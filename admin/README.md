@@ -23,6 +23,17 @@ El panel corresponde al "Backoffice" del SaaS.
 
 ---
 
+## 🔐 1. Acceso y Autenticación
+
+El panel cuenta con una página de login dedicada (`/login`) con las siguientes características:
+
+- **Diseño Split-Screen**: Área de marca visual a la izquierda y formulario limpio a la derecha.
+- **Mock Auth (Dev)**: Credenciales por defecto `admin@lucia.com` / `admin123`.
+- **Mecanismo de Logout**: Botón "Cerrar Sesión" integrado en el menú lateral.
+- **Gestión de Sesión**: Redirección automática si no hay sesión activa (simulado).
+
+---
+
 ## 🚀 2. Onboarding de un Tenant (primeros 10 minutos)
 
 El onboarding debe aparecer como una guía en la primera sesión del usuario.
@@ -146,17 +157,58 @@ El backend obtiene `tenantId` del JWT. No se envía en los inputs.
 ### 7.1 Funcionalidad
 
 - Crear profesional
-- Asignar servicios
-- Editar datos
+- Asignar servicios (Multi-select)
+- Editar datos (Bio, Nombre)
+- **Definir contexto IA (Rasgos, Especialidades, Idiomas)**
 - Activar/desactivar
 - Asignar zona horaria (por profesional)
 
 ### 7.2 GraphQL
 
 ```graphql
+type Provider {
+  id: ID!
+  name: String!
+  bio: String
+  serviceIds: [ID!]!
+  timezone: String!
+  active: Boolean!
+  aiDrivers: AiDrivers
+}
+
+type AiDrivers {
+  traits: [String!]
+  specialties: [String!]
+  languages: [String!]
+}
+
 type Query {
   adminListProviders: [Provider!]!
   adminGetProvider(id: ID!): Provider
+}
+
+input AdminCreateProviderInput {
+  name: String!
+  bio: String
+  serviceIds: [ID!]
+  timezone: String
+  aiDrivers: AiDriversInput
+}
+
+input AdminUpdateProviderInput {
+  id: ID!
+  name: String
+  bio: String
+  serviceIds: [ID!]
+  timezone: String
+  active: Boolean
+  aiDrivers: AiDriversInput
+}
+
+input AiDriversInput {
+  traits: [String!]
+  specialties: [String!]
+  languages: [String!]
 }
 
 type Mutation {
@@ -243,7 +295,7 @@ Cada tenant puede activar/desactivar IA según su plan.
 
 | Modo | Descripción | Costo | Plan |
 |------|-------------|-------|------|
-| FSM | Conversación determinística | 0 USD | FREE/PRO |
+| FSM | Conversación determinística | 0 USD (en trial) / Base | LITE/PRO |
 | NLP asistido | Haiku para intención y entidades | Bajo | PRO/BUSINESS |
 | IA completa | Bedrock Agent Core + Sonnet | Medio/Alto | BUSINESS/ENTERPRISE |
 
