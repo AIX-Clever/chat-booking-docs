@@ -53,28 +53,27 @@ Estas operaciones son accesibles vía **API Key + AllowedOrigins**:
 
 ```graphql
 type Query {
-  listServices: [Service!]!
-  listProviders(serviceId: ID!): [Provider!]!
-  getAvailability(providerId: ID!, date: AWSDate!): [AvailabilitySlot!]!
-  getConversation(conversationId: ID!): Conversation
-  health: String!
+  searchServices(text: String, availableOnly: Boolean): [Service!]!
+  getService(serviceId: ID!): Service
+  listProviders: [Provider!]!
+  listProvidersByService(serviceId: ID!): [Provider!]!
+  getAvailableSlots(input: GetAvailableSlotsInput!): [TimeSlot!]!
+  getConversation(input: GetConversationInput!): Conversation
 }
 ```
 
 ## Detalles
 
-### listServices
-- Devuelve servicios activos del tenant
-- Orden alfabético básico
+### searchServices(text, availableOnly)
+- Busca servicios activos
+- Filtra por texto (opcional)
+- Filtra solo disponibles
 
 ### listProviders(serviceId)
 - Lista profesionales que atienden ese servicio
 
-### getAvailability(providerId, date)
-- Construye slots dinámicamente combinando:
-  - reglas recurrentes
-  - excepciones
-  - reservas existentes
+### getAvailableSlots(input)
+- Busca slots disponibles en un rango de fechas
 
 ### getConversation
 - Estado persistente del flujo del chat
@@ -88,8 +87,10 @@ type Query {
 
 ```graphql
 type Mutation {
-  sendAgentMessage(conversationId: ID, text: String!): AgentResponse!
+  sendMessage(input: SendMessageInput!): ChatResponse!
+  startConversation(input: StartConversationInput!): ChatResponse!
   createBooking(input: CreateBookingInput!): Booking!
+  confirmBookingFromConversation(input: ConfirmBookingFromConversationInput!): ChatResponse!
 }
 ```
 
@@ -155,10 +156,10 @@ type Service {
   serviceId: ID!
   name: String!
   description: String
-  category: String
+  category: String!
   durationMinutes: Int!
   price: Float
-  active: Boolean!
+  available: Boolean!
 }
 ```
 
@@ -170,7 +171,8 @@ type Provider {
   name: String!
   bio: String
   serviceIds: [ID!]!
-  active: Boolean!
+  timezone: String!
+  available: Boolean!
 }
 ```
 
@@ -188,12 +190,19 @@ type AvailabilitySlot {
 ```graphql
 type Booking {
   bookingId: ID!
+  tenantId: ID!
   serviceId: ID!
   providerId: ID!
-  datetime: AWSDateTime!
+  start: AWSDateTime!
+  end: AWSDateTime!
   status: BookingStatus!
-  customerName: String!
-  customerEmail: String
+  paymentStatus: PaymentStatus!
+  clientName: String!
+  clientEmail: String!
+  clientPhone: String
+  notes: String
+  conversationId: ID
+  createdAt: AWSDateTime!
 }
 ```
 
@@ -283,9 +292,13 @@ Ejemplo:
 input CreateBookingInput {
   serviceId: ID!
   providerId: ID!
-  datetime: AWSDateTime!
-  customerName: String!
-  customerEmail: String
+  start: AWSDateTime!
+  end: AWSDateTime!
+  clientName: String!
+  clientEmail: String!
+  clientPhone: String
+  notes: String
+  conversationId: ID
 }
 
 input AdminProviderInput {
