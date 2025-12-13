@@ -45,6 +45,7 @@ Este documento define el diseño de las tablas DynamoDB utilizadas por la plataf
 | `Conversations` | Estado del chat por conversación |
 | `Tenants` | Configuración y plan de cada tenant |
 | `TenantApiKeys` | API keys públicas para el widget |
+| `ChatBooking-Categories` | Categorías para agrupar servicios |
 | `TenantUsage` | Métricas mensuales por tenant |
 
 ---
@@ -85,9 +86,45 @@ Catálogo de servicios ofrecidos por cada tenant.
 - **Listar servicios** → Query por `PK = TENANT#...` + `begins_with(SK, "SERVICE#")`
 - **Buscar servicio por nombre** → Query en GSI1 por `TENANT#` + `NAME#<normalized>` (útil en IA)
 
+- **Buscar servicio por nombre** → Query en GSI1 por `TENANT#` + `NAME#<normalized>` (útil en IA)
+
 ---
 
-# 👩‍⚕️ 4. Tabla: `Providers`
+# 📂 4. Tabla: `Categories`
+
+Agrupación lógica de servicios (ej: "Facial", "Corporal", "Consultas").
+
+## 4.1 Esquema
+
+- **PK**: `tenantId` (String)
+- **SK**: `categoryId` (String)
+
+> Nota: Esta tabla usa un esquema simple PK/SK sin prefijos compuestos como `TENANT#`.
+
+## 4.2 Atributos
+
+```json
+{
+  "tenantId": "DERMASKIN",
+  "categoryId": "cat_001",
+  "name": "Facial",
+  "description": "Tratamientos para el rostro",
+  "isActive": true,
+  "displayOrder": 1,
+  "metadata": {},
+  "createdAt": "2025-01-01T10:00:00Z",
+  "updatedAt": "2025-01-02T12:00:00Z"
+}
+```
+
+## 4.3 Patrones de acceso
+
+- **Listar categorías por tenant** → Query `PK = tenantId`
+- **Obtener categoría** → GetItem `PK = tenantId`, `SK = categoryId`
+
+---
+
+# 👩‍⚕️ 5. Tabla: `Providers`
 
 Profesionales del tenant.
 

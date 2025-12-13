@@ -74,6 +74,9 @@ tenantId: "TENANT_123"
 role: "ADMIN"
 ```
 
+> **Nota:** Debido a que el atributo `custom:tenantId` es inmutable en Cognito, el sistema también soporta el uso del atributo estándar `website` como fallback para almacenar el `tenantId` en usuarios existentes que requieren asignación manual.
+
+
 AppSync usa estos claims para:
 
 - asegurar acceso  

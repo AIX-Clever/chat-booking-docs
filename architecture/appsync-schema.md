@@ -36,6 +36,7 @@ schema {
 Se organiza por módulos:
 
 - Services
+- Categories
 - Providers
 - Availability
 - Bookings
@@ -59,6 +60,7 @@ type Query {
   listProvidersByService(serviceId: ID!): [Provider!]!
   getAvailableSlots(input: GetAvailableSlotsInput!): [TimeSlot!]!
   getConversation(input: GetConversationInput!): Conversation
+  listCategories(activeOnly: Boolean): [Category!]!
 }
 ```
 
@@ -134,6 +136,10 @@ extend type Mutation {
   adminUpdateService(input: AdminServiceUpdateInput!): Service!
   adminDeleteService(serviceId: ID!): Boolean!
 
+  createCategory(input: CreateCategoryInput!): Category!
+  updateCategory(input: UpdateCategoryInput!): Category!
+  deleteCategory(categoryId: ID!): Boolean!
+
   adminCreateProvider(input: AdminProviderInput!): Provider!
   adminUpdateProvider(input: AdminProviderUpdateInput!): Provider!
   adminDeleteProvider(providerId: ID!): Boolean!
@@ -161,9 +167,23 @@ type Service {
   price: Float
   available: Boolean!
 }
-```
 
-## 7.2 Provider
+## 7.2 Category
+
+```graphql
+type Category {
+  categoryId: ID!
+  tenantId: ID!
+  name: String!
+  description: String
+  isActive: Boolean!
+  displayOrder: Int!
+  metadata: AWSJSON
+  createdAt: AWSDateTime!
+  updatedAt: AWSDateTime!
+}
+
+## 7.3 Provider
 
 ```graphql
 type Provider {
@@ -176,7 +196,7 @@ type Provider {
 }
 ```
 
-## 7.3 AvailabilitySlot
+## 7.4 AvailabilitySlot
 
 ```graphql
 type AvailabilitySlot {
@@ -185,7 +205,7 @@ type AvailabilitySlot {
 }
 ```
 
-## 7.4 Booking
+## 7.5 Booking
 
 ```graphql
 type Booking {
@@ -206,7 +226,7 @@ type Booking {
 }
 ```
 
-## 7.5 Conversation
+## 7.6 Conversation
 
 ```graphql
 type Conversation {
@@ -219,7 +239,7 @@ type Conversation {
 }
 ```
 
-## 7.6 AgentResponse
+## 7.7 AgentResponse
 
 ```graphql
 type AgentResponse {
@@ -228,7 +248,7 @@ type AgentResponse {
 }
 ```
 
-## 7.7 AgentMessage
+## 7.8 AgentMessage
 
 ```graphql
 type AgentMessage {
